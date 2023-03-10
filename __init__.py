@@ -8,8 +8,7 @@ bl_info = {
     "blender": (3, 0, 0),
     "location": "3D View -> Select an object and the active modifier is simple deformation",
     "description": "Simple Deform visualization adjustment tool",
-    "doc_url": "https://github.com/Yorha4D/simple_deform_helper/blob/main/README_CN.md",
-    "wiki_url": "",
+    "doc_url": "https://github.com/AIGODLIKE/simple_deform_helper/blob/main/README.md",
     "category": "3D View"
 }
 

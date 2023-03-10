@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 from os.path import dirname, basename, realpath
 
 G_MODIFIERS_PROPERTY = [  # copy modifier data

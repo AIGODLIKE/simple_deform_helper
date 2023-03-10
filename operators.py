@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 import bpy
 from bpy.types import Operator
 from bpy.props import FloatProperty, StringProperty, BoolProperty
@@ -5,7 +7,7 @@ from bpy.props import FloatProperty, StringProperty, BoolProperty
 from .utils import Pref
 
 
-class DeformAxisOperator(Operator,Pref):
+class DeformAxisOperator(Operator, Pref):
     bl_idname = 'simple_deform_gizmo.deform_axis'
     bl_label = 'deform_axis'
     bl_description = 'deform_axis operator'

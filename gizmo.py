@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 import math
 from bpy_extras import view3d_utils
