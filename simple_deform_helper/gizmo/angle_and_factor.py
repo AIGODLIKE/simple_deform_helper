@@ -43,6 +43,7 @@ class AngleUpdate(GizmoUtils):
         snap_value = self.get_snap(new_value, tweak)
 
         is_shift = event.type == 'LEFT_SHIFT'
+        is_release = event.value == 'RELEASE'
         if is_only_shift:
             if event.value == 'PRESS':
                 self.init_mouse_region_x = event.mouse_region_x
@@ -54,9 +55,8 @@ class AngleUpdate(GizmoUtils):
             v(value)
             return
 
-        elif not_c_l and not event.shift and is_shift and event.value == 'RELEASE':
+        elif not_c_l and not event.shift and is_shift and is_release:
             self.init_mouse_region_x = event.mouse_region_x
-            # new_value = self.tmp_value_angle = math.degrees(old_value)
             return
         v(snap_value)
 

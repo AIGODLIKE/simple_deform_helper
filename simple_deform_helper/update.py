@@ -106,12 +106,7 @@ class ChangeActiveObject(simple_update):
         obj = bpy.context.object
         name = obj.name
         key = 'active_object'
-        if key not in cls.tmp_save_data:
-            if change_data:
-                cls.tmp_save_data[key] = name
-            return True
-
-        elif cls.tmp_save_data[key] != name:
+        if key not in cls.tmp_save_data or cls.tmp_save_data[key] != name:
             if change_data:
                 cls.tmp_save_data[key] = name
             return True
