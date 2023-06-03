@@ -13,7 +13,8 @@ class DrawPublic(GizmoUtils):
     G_HandleData = {}  # Save draw Handle
 
     @classmethod
-    def draw_3d_shader(cls, pos, indices, color=None, *, shader_name='3D_UNIFORM_COLOR', draw_type='LINES'):
+    def draw_3d_shader(cls, pos, indices, color=None, *,
+                       shader_name='3D_UNIFORM_COLOR', draw_type='LINES'):
         shader = gpu.shader.from_builtin(shader_name)
         if draw_type == 'POINTS':
             batch = batch_for_shader(shader, draw_type, {'pos': pos})
@@ -31,7 +32,8 @@ class DrawPublic(GizmoUtils):
     def draw_poll(self) -> bool:
         if simple_update.timers_update_poll():
             is_switch_obj = ChangeActiveObject.is_change_active_object(False)
-            if self.poll_simple_deform_public(bpy.context) and not is_switch_obj:
+            if self.poll_simple_deform_public(
+                    bpy.context) and not is_switch_obj:
                 return True
         return False
 
@@ -69,19 +71,24 @@ class DrawText(DrawPublic):
             self.draw_scale_text()
 
     def draw_scale_text(self):
-        obj = bpy.context.object
         font_id = self.font_info['font_id']
-        blf.position(font_id, 200, 80, 0)
+        y = 80
         blf.size(font_id, 15, 72)
         blf.color(font_id, 1, 1, 1, 1)
-        blf.draw(
-            font_id,
-            f'The scaling value of the object {obj.name_full} is not 1,'
-            f' which will cause the deformation of the simple deformation modifier.'
-            f' Please apply the scaling before deformation')
+        text_list = [
+            'The scaling value of the object is not 1',
+            'which will cause the deformation of the simple deformation '
+            'modifier.',
+            'Please apply the scaling before deformation.',
+        ]
+        for text in text_list[::-1]:
+            blf.position(font_id, 200, y, 0)
+            blf.draw(font_id, self.translate_text(text))
+            y += 20
 
     @classmethod
-    def draw_text(cls, x, y, text='Hello Word', font_id=0, size=10, *, color=(0.5, 0.5, 0.5, 1), dpi=72, column=0):
+    def draw_text(cls, x, y, text='Hello Word', font_id=0, size=10, *,
+                  color=(0.5, 0.5, 0.5, 1), dpi=72, column=0):
         blf.position(font_id, x, y - (size * (column + 1)), 0)
         blf.size(font_id, size, dpi)
         blf.draw(font_id, text)
@@ -92,8 +99,9 @@ class DrawHandler(DrawText):
     @classmethod
     def add_handler(cls):
         if 'handler' not in cls.G_HandleData:
-            cls.G_HandleData['handler'] = bpy.types.SpaceView3D.draw_handler_add(
-                Draw3D().draw, (), 'WINDOW', 'POST_VIEW')
+            cls.G_HandleData[
+                'handler'] = bpy.types.SpaceView3D.draw_handler_add(
+                Draw3D().draw_post_view, (), 'WINDOW', 'POST_VIEW')
 
         cls.add_text_handler()
 
@@ -116,7 +124,7 @@ class DrawHandler(DrawText):
 
 class Draw3D(DrawHandler):
 
-    def draw(self):
+    def draw_post_view(self):
         gpu.state.blend_set('ALPHA')
         gpu.state.line_width_set(1)
 
@@ -142,7 +150,8 @@ class Draw3D(DrawHandler):
 
     def draw_bound_box(self):
         coords = self.matrix_calculation(self.obj_matrix_world,
-                                         self.tow_co_to_coordinate(self.modifier_bound_co))
+                                         self.tow_co_to_coordinate(
+                                             self.modifier_bound_co))
         self.draw_3d_shader(coords, self.G_INDICES, self.pref.bound_box_color)
 
     def draw_limits_bound_box(self):
@@ -152,7 +161,8 @@ class Draw3D(DrawHandler):
                             )
 
     def draw_limits_line(self):
-        up_point, down_point, up_limits, down_limits = self.modifier_limits_point
+        up_point, down_point, up_limits, down_limits = \
+            self.modifier_limits_point
         # draw limits line
         self.draw_3d_shader((up_limits, down_limits), ((1, 0),), (1, 1, 0, 0.5))
         # draw  line
@@ -169,13 +179,16 @@ class Draw3D(DrawHandler):
         deform_data = self.G_DeformDrawData
         active = self.modifier
         # draw deform mesh
-        if 'simple_deform_bound_data' in deform_data and self.pref.update_deform_wireframe:
+        if 'simple_deform_bound_data' in deform_data and \
+                self.pref.update_deform_wireframe:
             modifiers = self.get_modifiers_parameter(self.modifier)
-            pos, indices, mat, mod_data, limits = deform_data['simple_deform_bound_data']
+            pos, indices, mat, mod_data, limits = deform_data[
+                'simple_deform_bound_data']
             is_limits = limits == active.limits[:]
             is_mat = (ob.matrix_world == mat)
             if modifiers == mod_data and is_mat and is_limits:
-                self.draw_3d_shader(pos, indices, self.pref.deform_wireframe_color)
+                self.draw_3d_shader(pos, indices,
+                                    self.pref.deform_wireframe_color)
 
     def draw_origin_error(self):
         ...

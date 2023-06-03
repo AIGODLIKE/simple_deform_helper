@@ -207,7 +207,6 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
 
         if self.modifier_is_use_origin_axis:
             self.new_origin_empty_object()
-            # return {'RUNNING_MODAL'}
 
         self.difference_value = self.modifier_up_limits - self.modifier_down_limits
         self.middle_limits_value = (self.modifier_up_limits + self.modifier_down_limits) / 2
@@ -218,8 +217,6 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
             self.update_object_origin_matrix()
         except Exception as e:
             print(e.args)
-            # ...
-            # return {'FINISHED'}
         self.update_header_text(context)
         return_handle = self.event_handle(event)
         ChangeActiveModifierParameter.update_modifier_parameter()

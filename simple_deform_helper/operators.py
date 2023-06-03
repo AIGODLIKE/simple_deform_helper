@@ -30,7 +30,7 @@ class DeformAxisOperator(Operator, GizmoUtils):
         mod = context.object.modifiers.active
         mod.deform_axis = self.Deform_Axis
         empty = self.new_origin_empty_object()
-        is_positive = self.is_positive(mod.angle)
+        is_positive = self.number_is_positive(mod.angle)
 
         for limit, value in (('max_x', self.X_Value),
                              ('min_x', self.X_Value),

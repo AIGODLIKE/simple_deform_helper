@@ -13,18 +13,22 @@ from mathutils import Vector, Matrix, Euler
 
 class PublicData:
     """Public data class, where all fixed data will be placed
-Classify each different type of data separately and cache it to avoid getting stuck due to excessive update frequency
+Classify each different type of data separately and cache it to avoid getting
+stuck due to excessive update frequency
     """
     G_CustomShape = {}  #
 
-    G_DeformDrawData = {}  # Save Deform Vertex And Indices,Update data only when updating deformation boxes
+    G_DeformDrawData = {}
+    # Save Deform Vertex And Indices,Update data only when updating
+    # deformation boxes
 
     G_MultipleModifiersBoundData = {}
 
     G_INDICES = (
         (0, 1), (0, 2), (1, 3), (2, 3),
         (4, 5), (4, 6), (5, 7), (6, 7),
-        (0, 4), (1, 5), (2, 6), (3, 7))  # The order in which the 8 points of the bounding box are drawn
+        (0, 4), (1, 5), (2, 6), (3, 7))
+    # The order in which the 8 points of the bounding box are drawn
     G_NAME = 'ViewSimpleDeformGizmo_'  # Temporary use files prefix
 
     G_DEFORM_MESH_NAME = G_NAME + 'DeformMesh'
@@ -34,7 +38,8 @@ Classify each different type of data separately and cache it to avoid getting st
     G_NAME_EMPTY_AXIS = G_NAME + '_Empty_'
     G_NAME_CON_LIMIT = G_NAME + 'ConstraintsLimitRotation'  # constraints name
     G_NAME_CON_COPY_ROTATION = G_NAME + 'ConstraintsCopyRotation'
-    G_ADDON_NAME = basename(dirname(realpath(__file__)))  # "simple_deform_helper"
+    G_ADDON_NAME = basename(
+        dirname(realpath(__file__)))  # "simple_deform_helper"
 
     G_MODIFIERS_PROPERTY = [  # Copy modifier data
         'angle',
@@ -47,8 +52,6 @@ Classify each different type of data separately and cache it to avoid getting st
         'lock_y',
         'lock_z',
         'origin',
-        # 'show_expanded',
-        # 'show_in_editmode',
         'vertex_group',
     ]
 
@@ -73,7 +76,8 @@ Classify each different type of data separately and cache it to avoid getting st
         bm.faces.ensure_lookup_table()
         bm.verts.ensure_lookup_table()
         bmesh.ops.triangulate(bm, faces=bm.faces)
-        co_list = [list(float(format(j, ".3f")) for j in vert.co) for face in bm.faces for vert in face.verts]
+        co_list = [list(float(format(j, ".3f")) for j in vert.co) for face in
+                   bm.faces for vert in face.verts]
         bm.free()
         return co_list
 
@@ -95,7 +99,8 @@ Classify each different type of data separately and cache it to avoid getting st
 class PublicClass(PublicData):
     @staticmethod
     def pref_() -> "AddonPreferences":
-        return bpy.context.preferences.addons[PublicData.G_ADDON_NAME].preferences
+        return bpy.context.preferences.addons[
+            PublicData.G_ADDON_NAME].preferences
 
     @property
     def pref(self=None) -> 'AddonPreferences':
@@ -127,11 +132,13 @@ class PublicPoll(PublicClass):
             return False
 
         available_obj_type = cls.obj_type_is_mesh_or_lattice(obj)
-        is_available_obj = cls.mod_is_simple_deform_type(mod) and available_obj_type
+        is_available_obj = cls.mod_is_simple_deform_type(
+            mod) and available_obj_type
         is_obj_mode = cls.poll_context_mode_is_object()
         show_mod = mod.show_viewport
         not_is_self_mesh = obj.name != cls.G_NAME
-        return is_available_obj and is_obj_mode and show_mod and not_is_self_mesh
+        return is_available_obj and is_obj_mode and show_mod and \
+            not_is_self_mesh
 
     @classmethod
     def poll_object_is_show(cls, context: 'bpy.types.Context') -> bool:
@@ -164,7 +171,8 @@ class PublicPoll(PublicClass):
         active modifier deform_method =='BEND'
         """
         simple = cls.poll_simple_deform_public(context)
-        is_bend = simple and (context.object.modifiers.active.deform_method == 'BEND')
+        is_bend = simple and (
+                    context.object.modifiers.active.deform_method == 'BEND')
         return simple and is_bend
 
     @classmethod
@@ -224,7 +232,8 @@ class GizmoClassMethod(PublicTranslate):
     def get_modifiers_parameter(cls, modifier):
         prop = bpy.types.bpy_prop_array
         return list(
-            getattr(modifier, i)[:] if type(getattr(modifier, i)) == prop else getattr(modifier, i)
+            getattr(modifier, i)[:] if type(
+                getattr(modifier, i)) == prop else getattr(modifier, i)
             for i in cls.G_MODIFIERS_PROPERTY
         )
 
@@ -234,7 +243,8 @@ class GizmoClassMethod(PublicTranslate):
         @param value: limit value
         @param max_value: Maximum allowed
         @param min_value: Minimum allowed
-        @return: If the input value is greater than the maximum value or less than the minimum value
+        @return: If the input value is greater than the maximum value or less
+        than the minimum value
         it will be limited to the maximum or minimum value
         """
         if value > max_value:
@@ -245,7 +255,7 @@ class GizmoClassMethod(PublicTranslate):
             return value
 
     @classmethod
-    def is_positive(cls, number: 'int') -> bool:
+    def number_is_positive(cls, number: 'int') -> bool:
         """return bool value
         if number is positive return True else return False
         """
@@ -272,7 +282,8 @@ class GizmoClassMethod(PublicTranslate):
         cls._link_obj(obj, False)
 
     @classmethod
-    def get_mesh_max_min_co(cls, obj: 'bpy.context.object') -> '[Vector,Vector]':
+    def get_mesh_max_min_co(cls,
+                            obj: 'bpy.context.object') -> '[Vector,Vector]':
         if obj.type == 'MESH':
             ver_len = obj.data.vertices.__len__()
             list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
@@ -285,10 +296,12 @@ class GizmoClassMethod(PublicTranslate):
             list_vertices = list_vertices.reshape(ver_len, 3)
         else:
             list_vertices = np.zeros((3, 3), dtype=np.float32)
-        return Vector(list_vertices.min(axis=0)).freeze(), Vector(list_vertices.max(axis=0)).freeze()
+        return Vector(list_vertices.min(axis=0)).freeze(), Vector(
+            list_vertices.max(axis=0)).freeze()
 
     @classmethod
-    def matrix_calculation(cls, mat: 'Matrix', calculation_list: 'list') -> list:
+    def matrix_calculation(cls, mat: 'Matrix',
+                           calculation_list: 'list') -> list:
         return [mat @ Vector(i) for i in calculation_list]
 
     @classmethod
@@ -420,7 +433,8 @@ class PublicProperty(GizmoClassMethod):
                     top, bottom = up_limits, down_limits = g_l(top, bottom)
 
         points = (up_point, down_point, up_limits, down_limits)
-        each_point = ((right[0], back[1], top[2]), (left[0], front[1], bottom[2],))
+        each_point = (
+        (right[0], back[1], top[2]), (left[0], front[1], bottom[2],))
         return points, self.tow_co_to_coordinate(each_point)
 
     # ----------------------
@@ -451,10 +465,12 @@ class PublicProperty(GizmoClassMethod):
         def get_bound_co_data():
             key = 'self.modifier.name'
             if key not in self.G_MultipleModifiersBoundData:
-                self.G_MultipleModifiersBoundData[key] = self.get_mesh_max_min_co(self.obj)
+                self.G_MultipleModifiersBoundData[
+                    key] = self.get_mesh_max_min_co(self.obj)
             return self.G_MultipleModifiersBoundData[key]
 
-        return self.G_MultipleModifiersBoundData.get(self.modifier.name, get_bound_co_data())
+        return self.G_MultipleModifiersBoundData.get(self.modifier.name,
+                                                     get_bound_co_data())
 
     @property
     def modifier_bound_box_pos(self):
@@ -658,11 +674,15 @@ class GizmoUpdate(PublicProperty):
             origin_mode = self.origin_mode
             origin_object = self.modifier.origin
             if origin_mode == 'UP_LIMITS':
-                origin_object.matrix_world.translation = Vector(self.point_limits_up)
+                origin_object.matrix_world.translation = Vector(
+                    self.point_limits_up)
             elif origin_mode == 'DOWN_LIMITS':
-                origin_object.matrix_world.translation = Vector(self.point_limits_down)
+                origin_object.matrix_world.translation = Vector(
+                    self.point_limits_down)
             elif origin_mode == 'LIMITS_MIDDLE':
-                translation = (self.point_limits_up + self.point_limits_down) / 2
+                translation = (
+                                          self.point_limits_up +
+                                          self.point_limits_down) / 2
                 origin_object.matrix_world.translation = translation
             elif origin_mode == 'MIDDLE':
                 translation = (self.point_up + self.point_down) / 2
@@ -671,7 +691,8 @@ class GizmoUpdate(PublicProperty):
     def update_multiple_modifiers_data(self):
         obj = self.obj
         context = bpy.context
-        if not self.obj_type_is_mesh_or_lattice(obj) or not self.poll_modifier_type_is_simple(context):
+        if not self.obj_type_is_mesh_or_lattice(
+                obj) or not self.poll_modifier_type_is_simple(context):
             return
         self.clear_point_cache()
         self.clear_modifiers_data()
@@ -705,7 +726,8 @@ class GizmoUpdate(PublicProperty):
 
         for mod in context.object.modifiers:
             if self.mod_is_simple_deform_type(mod):
-                dep_bound_tow_co = self.get_mesh_max_min_co(self.get_depsgraph(modifiers_obj))
+                dep_bound_tow_co = self.get_mesh_max_min_co(
+                    self.get_depsgraph(modifiers_obj))
                 self.G_MultipleModifiersBoundData[mod.name] = dep_bound_tow_co
                 new_mod = modifiers_obj.modifiers.new(mod.name, 'SIMPLE_DEFORM')
                 self.copy_modifier_parameter(mod, new_mod)
@@ -714,7 +736,6 @@ class GizmoUpdate(PublicProperty):
     def update_deform_wireframe(self):
         if not self.pref.update_deform_wireframe:
             return
-        # obj = self.obj
         name = self.modifier.name
         deform_name = self.G_DEFORM_MESH_NAME
 
@@ -745,7 +766,8 @@ class GizmoUpdate(PublicProperty):
         deform_obj.matrix_world = Matrix()
         center = (co[0] + co[1]) / 2
         scale = co[1] - co[0]
-        deform_obj.matrix_world = self.obj_matrix_world @ deform_obj.matrix_world
+        deform_obj.matrix_world = self.obj_matrix_world @ \
+                                  deform_obj.matrix_world
         deform_obj.location = center
         deform_obj.scale = scale
 
@@ -791,7 +813,8 @@ class GizmoUpdate(PublicProperty):
         deform_obj.hide_viewport = tmv
         deform_obj.hide_set(tmh)
 
-        self.G_DeformDrawData['simple_deform_bound_data'] = (ver, indices, self.obj_matrix_world, modifiers, limits[:])
+        self.G_DeformDrawData['simple_deform_bound_data'] = (
+        ver, indices, self.obj_matrix_world, modifiers, limits[:])
 
 
 class GizmoUtils(GizmoUpdate):
@@ -849,11 +872,10 @@ class GizmoUtils(GizmoUpdate):
             self.__update_matrix_func(context)
 
     def get_delta(self, event):
-        delta = (self.init_mouse_region_x - event.mouse_region_x) / self.mouse_dpi
+        delta = (
+                            self.init_mouse_region_x - event.mouse_region_x) \
+                / self.mouse_dpi
         return delta
-
-    def update_gizmo_matrix(self):
-        ...
 
     def event_handle(self, event):
         """General event triggering"""
@@ -871,7 +893,8 @@ class GizmoUtils(GizmoUpdate):
             self.pref.display_bend_axis_switch_gizmo = True
             return {'FINISHED'}
         elif event.type == 'W' and event.value == 'RELEASE':
-            self.pref.update_deform_wireframe = self.pref.update_deform_wireframe ^ True
+            self.pref.update_deform_wireframe = \
+                self.pref.update_deform_wireframe ^ True
         return {'RUNNING_MODAL'}
 
     @staticmethod
@@ -885,14 +908,6 @@ class GizmoGroupUtils(GizmoUtils):
     bl_region_type = 'WINDOW'
     bl_options = {'3D',
                   'PERSISTENT',
-                  # 'SCALE',
-                  # 'DEPTH_3D',
-                  # 'SELECT',
-                  # 'SHOW_MODAL_ALL',
-                  # 'EXCLUDE_MODAL',
-                  # 'TOOL_INIT', # not show
-                  # 'TOOL_FALLBACK_KEYMAP',
-                  # 'VR_REDRAWS'
                   }
 
 
@@ -945,13 +960,15 @@ class Tmp:
 
     @classmethod
     def properties_is_modifier(cls) -> bool:
-        """Returns whether there is a modifier property panel open in the active window.
+        """Returns whether there is a modifier property panel open in the
+        active window.
          If it is open, it returns to True else False
         """
         for area in bpy.context.screen.areas:
             if area.type == 'PROPERTIES':
                 for space in area.spaces:
-                    if space.type == 'PROPERTIES' and space.context == 'MODIFIER':
+                    if space.type == 'PROPERTIES' and space.context == \
+                            'MODIFIER':
                         return True
         return False
 
