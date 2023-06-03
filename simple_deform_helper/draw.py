@@ -113,13 +113,11 @@ class DrawHandler(DrawText):
 
         if data.objects.get(cls.G_NAME):
             data.objects.remove(data.objects.get(cls.G_NAME))
-
+        cls.del_text_handler()
         if 'handler' in cls.G_HandleData:
             bpy.types.SpaceView3D.draw_handler_remove(
                 cls.G_HandleData['handler'], 'WINDOW')
             cls.G_HandleData.clear()
-
-        cls.del_text_handler()
 
 
 class Draw3D(DrawHandler):
