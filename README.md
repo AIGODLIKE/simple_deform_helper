@@ -1,38 +1,40 @@
-# 简易形变助手 Simple Deform Helper
+# SimpleDeformHelper
 
-#### 介绍
 简易形变修改器可视化调整工具
 通过直接拖动Gizmo,可更直观地修改参数
 
-#### 软件架构
-软件架构说明
 
+注意:直接下载Zip将无法安装,需要下载[发布](https://github.com/AIGODLIKE/simple_deform_helper/releases)版本
 
-#### 安装教程
+![emm.jpeg](image/emm.jpeg)
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+显示Gizmo需要选择活动物体并且活动修改器为简易形变修改器
 
-#### 使用说明
+1.角度控制Gizmo
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+    可通过拖动来控制修改器的值
 
-#### 参与贡献
+2.轴向控制Gizmo
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+    通过单击修改活动修改器的形变轴向
 
+快捷键(在拖动Gizmo时):
 
-#### 特技
+    X Y Z:修改修改器的变形轴
 
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+A:显示变形轴Gizmo
+
+    滚轮滚动:切换原点控制模式
+
+切换轴向Gizmo(只有在模式为弯曲时才可显示):
+
+    6个方向每个方向有两个方向可切换
+
+在拖动上下限Gizmo时可以按住Ctrl 保持上下限之间的相对距离
+
+v0.2.0发布(2023-5-31)
+    添加:
+        插件属性 Gizmo属性显示位置,可更改Gizmo一些可控属性的显示位置
+    修改:
+        显示形变框更改为可选值,默认不显示
+        显示设置形变轴更改为可选值,默认不显示
