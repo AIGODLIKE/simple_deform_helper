@@ -14,9 +14,10 @@ bl_info = {
     "author": "AIGODLIKE社区,小萌新",
     "version": (0, 2, 0),
     "blender": (3, 0, 0),
-    "location": "3D View -> Select an object and the active modifier is simple deformation",
+    "location": "3D View -> Select an object and the active modifier is "
+                "simple deformation",
     "description": "Simple Deform visualization adjustment tool",
-    "doc_url": "https://github.com/AIGODLIKE/simple_deform_helper/blob/main/README.md",
+    "doc_url": "https://gitee.com/AIGODLIKE/simple_deform_helper/wikis",
     "category": "辣椒出品"
 }
 
