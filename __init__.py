@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-import update
-import preferences
-import utils
-import panel
-import operators
-import translate
-import gizmo
+from . import (
+    panel,  #
+    gizmo,
+    utils,
+    update,
+    translate,
+    operators,
+    preferences,
+)
 
 bl_info = {
     "name": "Simple Deform Helper",
