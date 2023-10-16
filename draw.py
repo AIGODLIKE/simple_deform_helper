@@ -14,7 +14,7 @@ class DrawPublic(GizmoUtils):
 
     @classmethod
     def draw_3d_shader(cls, pos, indices, color=None, *,
-                       shader_name='3D_UNIFORM_COLOR', draw_type='LINES'):
+                       shader_name='UNIFORM_COLOR', draw_type='LINES'):
         shader = gpu.shader.from_builtin(shader_name)
         if draw_type == 'POINTS':
             batch = batch_for_shader(shader, draw_type, {'pos': pos})
@@ -168,9 +168,9 @@ class Draw3D(DrawHandler):
 
         # draw pos
         self.draw_3d_shader([down_point], (), (0, 1, 0, 0.5),
-                            shader_name='3D_UNIFORM_COLOR', draw_type='POINTS')
+                            shader_name='UNIFORM_COLOR', draw_type='POINTS')
         self.draw_3d_shader([up_point], (), (1, 0, 0, 0.5),
-                            shader_name='3D_UNIFORM_COLOR', draw_type='POINTS')
+                            shader_name='UNIFORM_COLOR', draw_type='POINTS')
 
     def draw_deform_mesh(self):
         ob = self.obj
