@@ -15,6 +15,11 @@ class GizmoProperty(GizmoUtils):
     int_value_up_limits: int
     int_value_down_limits: int
 
+    difference_value: float
+    middle_limits_value: float
+
+    tolerance = 0.00001
+
     @property
     def is_up_limits_mode(self):
         return self.ctrl_mode == 'up_limits'
@@ -35,7 +40,27 @@ class GizmoProperty(GizmoUtils):
     def limits_max_value(self):
         return self.modifier_up_limits - self.limit_scope
 
-    # ----get func
+    @property
+    def up_down_limits_difference(self) -> float:
+        """
+            获取修改器上下限的差值
+        @rtype: float 修改器上下限差值
+        """
+        return self.modifier_up_limits - self.modifier_down_limits
+
+    @property
+    def is_wrong_position(self) -> bool:
+        """
+            获取上下限的位置是否错误,如果上限比下限还小就是错误的
+        @rtype: bool 是错误的位置
+        """
+        return self.up_down_limits_difference < 0 or self.up_down_limits_difference == 0
+
+    @property
+    def is_minimum_scope(self):  # 是最小的空间
+        return self.limit_scope + self.tolerance > self.up_down_limits_difference
+
+        # ----get func
 
     def get_up_limits_value(self, event):
         delta = self.get_delta(event)
@@ -94,6 +119,8 @@ class GizmoUpdate(GizmoProperty):
 
     # ---- set prop
     def set_prop_value(self, event):
+        if self.is_wrong_position:
+            self.restore_value()
         if self.is_up_limits_mode:
             self.set_up_value(event)
         elif self.is_down_limits_mode:
@@ -101,9 +128,17 @@ class GizmoUpdate(GizmoProperty):
 
     def set_down_value(self, event):
         value = self.get_down_limits_value(event)
+
+        print('self.origin_mode', self.origin_mode, self.difference_value, self.limit_scope)
+        print(self.is_wrong_position, self.is_minimum_scope, self.up_down_limits_difference)
+        print(self, '\n')
+
         self.target_set_value('down_limits', value)
         if event.ctrl:
-            self.target_set_value('up_limits', value + self.difference_value)
+            dv = self.difference_value
+            # u = dv - 0.001 if self.is_minimum_scope else dv
+            # self.target_set_value('up_limits', value + u)
+            self.target_set_value('up_limits', value + dv)
         elif self.is_middle_mode:
             if self.origin_mode == 'LIMITS_MIDDLE':
                 mu = self.middle_limits_value
@@ -120,7 +155,10 @@ class GizmoUpdate(GizmoProperty):
         value = self.get_up_limits_value(event)
         self.target_set_value('up_limits', value)
         if event.ctrl:
-            self.target_set_value('down_limits', value - self.difference_value)
+            dv = self.difference_value
+            # d = dv + 0.001 if self.is_minimum_scope else dv
+            # self.target_set_value('down_limits', value - d)
+            self.target_set_value('down_limits', value - dv)
         elif self.is_middle_mode:
             if self.origin_mode == 'LIMITS_MIDDLE':
                 mu = self.middle_limits_value
@@ -133,7 +171,6 @@ class GizmoUpdate(GizmoProperty):
         else:
             self.target_set_value('down_limits', self.modifier_down_limits)
 
-    # -------
     def update_header_text(self, context):
         origin = self.obj_origin_property_group
         mode = origin.bl_rna.properties['origin_mode'].enum_items[origin.origin_mode].name
@@ -148,6 +185,11 @@ class GizmoUpdate(GizmoProperty):
             value = round(self.modifier_down_limits, 3)
             text += t('Down limit', value)
         context.area.header_text_set(text)
+
+    def restore_value(self):
+        print('restore_value', self)
+        self.target_set_value('up_limits', 1)
+        self.target_set_value('down_limits', 0)
 
 
 class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
@@ -174,8 +216,6 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
         'int_value_up_limits',
         'int_value_down_limits',
     )
-    difference_value: float
-    middle_limits_value: float
 
     def setup(self):
         self.mouse_dpi = 10
@@ -221,7 +261,7 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
         return_handle = self.event_handle(event)
         ChangeActiveModifierParameter.update_modifier_parameter()
         self.update_deform_wireframe()
-        print('run modal time:', time() - st)
+        # print('run modal time:', time() - st)
         return return_handle
 
 
