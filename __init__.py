@@ -12,8 +12,8 @@ from . import (
 bl_info = {
     "name": "Simple Deform Helper",
     "author": "AIGODLIKE社区,小萌新",
-    "version": (0, 2, 0),
-    "blender": (3, 0, 0),
+    "version": (0, 2, 1),
+    "blender": (4, 0, 0),
     "location": "3D View -> Select an object and the active modifier is "
                 "simple deformation",
     "description": "Simple Deform visualization adjustment tool",
