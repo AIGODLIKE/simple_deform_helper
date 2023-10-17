@@ -25,7 +25,16 @@ class DrawPublic(GizmoUtils):
         shader.bind()
         if color:
             shader.uniform_float('color', color)
+        batch.draw(shader)
 
+    @classmethod
+    def draw_smooth_3d_shader(cls, pos, indices, color):
+        shader = gpu.shader.from_builtin('POLYLINE_SMOOTH_COLOR')
+        batch = batch_for_shader(
+            shader, 'LINES',
+            {"pos": pos, "color": [color for _ in pos]},
+            indices=indices,
+        )
         batch.draw(shader)
 
     @property
@@ -123,9 +132,7 @@ class DrawHandler(DrawText):
 class Draw3D(DrawHandler):
 
     def draw_post_view(self):
-        gpu.state.blend_set('ALPHA')
         gpu.state.line_width_set(1)
-
         gpu.state.blend_set('ALPHA')
         gpu.state.depth_test_set('ALWAYS')
 
@@ -150,21 +157,21 @@ class Draw3D(DrawHandler):
         coords = self.matrix_calculation(self.obj_matrix_world,
                                          self.tow_co_to_coordinate(
                                              self.modifier_bound_co))
-        self.draw_3d_shader(coords, self.G_INDICES, self.pref.bound_box_color)
+        self.draw_smooth_3d_shader(coords, self.G_INDICES, self.pref.bound_box_color)
 
     def draw_limits_bound_box(self):
-        self.draw_3d_shader(self.modifier_limits_bound_box,
-                            self.G_INDICES,
-                            self.pref.limits_bound_box_color,
-                            )
+        self.draw_smooth_3d_shader(self.modifier_limits_bound_box,
+                                   self.G_INDICES,
+                                   self.pref.limits_bound_box_color,
+                                   )
 
     def draw_limits_line(self):
         up_point, down_point, up_limits, down_limits = \
             self.modifier_limits_point
         # draw limits line
-        self.draw_3d_shader((up_limits, down_limits), ((1, 0),), (1, 1, 0, 0.5))
+        self.draw_smooth_3d_shader((up_limits, down_limits), ((1, 0),), (1, 1, 0, 0.5))
         # draw  line
-        self.draw_3d_shader((up_point, down_point), ((1, 0),), (1, 1, 0, 0.3))
+        self.draw_smooth_3d_shader((up_point, down_point), ((1, 0),), (1, 1, 0, 0.3))
 
         # draw pos
         self.draw_3d_shader([down_point], (), (0, 1, 0, 0.5),
@@ -185,8 +192,8 @@ class Draw3D(DrawHandler):
             is_limits = limits == active.limits[:]
             is_mat = (ob.matrix_world == mat)
             if modifiers == mod_data and is_mat and is_limits:
-                self.draw_3d_shader(pos, indices,
-                                    self.pref.deform_wireframe_color)
+                self.draw_smooth_3d_shader(pos, indices,
+                                           self.pref.deform_wireframe_color)
 
     def draw_origin_error(self):
         ...
