@@ -128,17 +128,13 @@ class GizmoUpdate(GizmoProperty):
 
     def set_down_value(self, event):
         value = self.get_down_limits_value(event)
-
-        print('self.origin_mode', self.origin_mode, self.difference_value, self.limit_scope)
-        print(self.is_wrong_position, self.is_minimum_scope, self.up_down_limits_difference)
-        print(self, '\n')
-
         self.target_set_value('down_limits', value)
         if event.ctrl:
             dv = self.difference_value
-            # u = dv - 0.001 if self.is_minimum_scope else dv
-            # self.target_set_value('up_limits', value + u)
-            self.target_set_value('up_limits', value + dv)
+            if self.is_minimum_scope:  # 如果上下限是最小距离再向相反方向移动那么上限和下限之间的距离就会增加
+                self.target_set_value('up_limits', value + dv + 0.001)
+            else:
+                self.target_set_value('up_limits', value + dv)
         elif self.is_middle_mode:
             if self.origin_mode == 'LIMITS_MIDDLE':
                 mu = self.middle_limits_value
@@ -156,9 +152,10 @@ class GizmoUpdate(GizmoProperty):
         self.target_set_value('up_limits', value)
         if event.ctrl:
             dv = self.difference_value
-            # d = dv + 0.001 if self.is_minimum_scope else dv
-            # self.target_set_value('down_limits', value - d)
-            self.target_set_value('down_limits', value - dv)
+            if self.is_minimum_scope:
+                self.target_set_value('down_limits', value - dv - 0.001)
+            else:
+                self.target_set_value('down_limits', value - dv)
         elif self.is_middle_mode:
             if self.origin_mode == 'LIMITS_MIDDLE':
                 mu = self.middle_limits_value
