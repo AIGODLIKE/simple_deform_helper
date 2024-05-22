@@ -172,7 +172,7 @@ class PublicPoll(PublicClass):
         """
         simple = cls.poll_simple_deform_public(context)
         is_bend = simple and (
-                    context.object.modifiers.active.deform_method == 'BEND')
+                context.object.modifiers.active.deform_method == 'BEND')
         return simple and is_bend
 
     @classmethod
@@ -434,7 +434,7 @@ class PublicProperty(GizmoClassMethod):
 
         points = (up_point, down_point, up_limits, down_limits)
         each_point = (
-        (right[0], back[1], top[2]), (left[0], front[1], bottom[2],))
+            (right[0], back[1], top[2]), (left[0], front[1], bottom[2],))
         return points, self.tow_co_to_coordinate(each_point)
 
     # ----------------------
@@ -632,6 +632,8 @@ class GizmoUpdate(PublicProperty):
             origin_object.hide_set(True)
             origin_object.empty_display_size = min(obj.dimensions)
             mod.origin = origin_object
+            origin_mode = self.obj.SimpleDeformGizmo_PropertyGroup.origin_mode
+            origin_object.SimpleDeformGizmo_PropertyGroup.origin_mode = origin_mode
         else:
             origin_object = mod.origin
             origin_object.hide_viewport = False
@@ -664,8 +666,6 @@ class GizmoUpdate(PublicProperty):
         copy_constraints.mix_mode = 'BEFORE'
         copy_constraints.target_space = 'WORLD'
         copy_constraints.owner_space = 'WORLD'
-        origin_mode = self.obj.SimpleDeformGizmo_PropertyGroup.origin_mode
-        origin_object.SimpleDeformGizmo_PropertyGroup.origin_mode = origin_mode
         self.fix_origin_parent_and_angle()
         return origin_object
 
@@ -681,8 +681,8 @@ class GizmoUpdate(PublicProperty):
                     self.point_limits_down)
             elif origin_mode == 'LIMITS_MIDDLE':
                 translation = (
-                                          self.point_limits_up +
-                                          self.point_limits_down) / 2
+                                      self.point_limits_up +
+                                      self.point_limits_down) / 2
                 origin_object.matrix_world.translation = translation
             elif origin_mode == 'MIDDLE':
                 translation = (self.point_up + self.point_down) / 2
@@ -814,7 +814,7 @@ class GizmoUpdate(PublicProperty):
         deform_obj.hide_set(tmh)
 
         self.G_DeformDrawData['simple_deform_bound_data'] = (
-        ver, indices, self.obj_matrix_world, modifiers, limits[:])
+            ver, indices, self.obj_matrix_world, modifiers, limits[:])
 
 
 class GizmoUtils(GizmoUpdate):
@@ -873,7 +873,7 @@ class GizmoUtils(GizmoUpdate):
 
     def get_delta(self, event):
         delta = (
-                            self.init_mouse_region_x - event.mouse_region_x) \
+                        self.init_mouse_region_x - event.mouse_region_x) \
                 / self.mouse_dpi
         return delta
 
