@@ -1,11 +1,11 @@
 schema_version = "1.0.0"
 
 blender_version_min = "4.2.0"
-id = "SimpleDeformHelper"
+id = "simple_deform_helper"
 license = ["UNKNOWN",]
 maintainer = "AIGODLIKE Community:小萌新"
 name = "Simple Deform Helper"
 tagline = "Simple Deform visualization adjustment tool"
 type = "add-on"
 version = "0.2.2"
-tags = ["AIGODLIKE",]
+tags = ["AIGODLIKE","Mesh"]

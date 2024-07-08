@@ -76,7 +76,7 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
                      "    X,Y,Z:  Switch Modifier Deform Axis",
                      "    W:       Switch Deform Wireframe Show",
                      "    A:       Switch To Select Bend Axis Mode(deform_method=='BEND')",):
-            box.label(text=self.translate_text(text))
+            box.label(text=text)
 
         col.prop(self, 'deform_wireframe_color')
         col.prop(self, 'bound_box_color')
