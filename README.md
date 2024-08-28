@@ -1,40 +1,25 @@
 # SimpleDeformHelper
 
-简易形变修改器可视化调整工具
-通过直接拖动Gizmo,可更直观地修改参数
+This is an addon for Blender that enhance simple deform modifier. A visualize simple deform tool.  
+
+![image](https://github.com/user-attachments/assets/086aca13-154d-4229-a062-abc0e51264f2)
 
 
-注意:直接下载Zip将无法安装,需要下载[发布](https://github.com/AIGODLIKE/simple_deform_helper/releases)版本
+## Usage
 
-![emm.jpeg](image/emm.jpeg)
+To display gizmos, you need select an object then add a simple deform modifier.
+  
+Red gizmoe: Upper limit  
+Green gizmo: Lower limit  
+purple gizmo: Deform strength
 
-显示Gizmo需要选择活动物体并且活动修改器为简易形变修改器
+When draging gizmos, you can pres X/Y/Z to lock on axis, hold Ctrl to keep relative distance
 
-1.角度控制Gizmo
+And, you can change origin control mode at tool settings to change limit behaviors, you can also scroll when dragging to change it quickly.  
 
-    可通过拖动来控制修改器的值
+![GIF 2024-8-28 15-24-17](https://github.com/user-attachments/assets/d8b4c6fe-5b3a-47d0-93a4-a0b712dc4a25)
 
-2.轴向控制Gizmo
 
-    通过单击修改活动修改器的形变轴向
+## Notice
 
-快捷键(在拖动Gizmo时):
-
-    X Y Z:修改修改器的变形轴
-
-A:显示变形轴Gizmo
-
-    滚轮滚动:切换原点控制模式
-
-切换轴向Gizmo(只有在模式为弯曲时才可显示):
-
-    6个方向每个方向有两个方向可切换
-
-在拖动上下限Gizmo时可以按住Ctrl 保持上下限之间的相对距离
-
-v0.2.0发布(2023-5-31)
-    添加:
-        插件属性 Gizmo属性显示位置,可更改Gizmo一些可控属性的显示位置
-    修改:
-        显示形变框更改为可选值,默认不显示
-        显示设置形变轴更改为可选值,默认不显示
+Download ZIP install will cause error, you need download it in realease: https://github.com/AIGODLIKE/simple_deform_helper/releases
