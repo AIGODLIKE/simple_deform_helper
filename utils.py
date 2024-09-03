@@ -3,7 +3,6 @@
 import math
 import uuid
 from functools import cache
-from os.path import dirname, basename, realpath
 
 import bpy
 import numpy as np
@@ -38,8 +37,7 @@ stuck due to excessive update frequency
     G_NAME_EMPTY_AXIS = G_NAME + '_Empty_'
     G_NAME_CON_LIMIT = G_NAME + 'ConstraintsLimitRotation'  # constraints name
     G_NAME_CON_COPY_ROTATION = G_NAME + 'ConstraintsCopyRotation'
-    G_ADDON_NAME = basename(
-        dirname(realpath(__file__)))  # "simple_deform_helper"
+    G_ADDON_NAME = __package__  # "simple_deform_helper"
 
     G_MODIFIERS_PROPERTY = [  # Copy modifier data
         'angle',
