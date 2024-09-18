@@ -200,9 +200,7 @@ class Draw3D(DrawHandler):
         # draw deform mesh
         if 'simple_deform_bound_data' in deform_data and \
                 self.pref.update_deform_wireframe:
-            gpu.state.line_width_set(1)
-            gpu.state.blend_set('ALPHA')
-            gpu.state.depth_test_set('LESS_EQUAL')
+            self._set_front_()
             modifiers = self.get_modifiers_parameter(self.modifier)
             pos, indices, mat, mod_data, limits = deform_data[
                 'simple_deform_bound_data']
