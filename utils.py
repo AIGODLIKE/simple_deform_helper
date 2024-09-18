@@ -35,8 +35,8 @@ stuck due to excessive update frequency
     G_SUB_LEVELS = 7
 
     G_NAME_EMPTY_AXIS = G_NAME + '_Empty_'
-    G_NAME_CON_LIMIT = G_NAME + 'ConstraintsLimitRotation'  # constraints name
-    G_NAME_CON_COPY_ROTATION = G_NAME + 'ConstraintsCopyRotation'
+    G_NAME_CON_LIMIT = G_NAME + 'Constraints_Limit_Rotation'  # constraints name
+    G_NAME_CON_COPY_ROTATION = G_NAME + 'Constraints_Copy_Rotation'
     G_ADDON_NAME = __package__  # "simple_deform_helper"
 
     G_MODIFIERS_PROPERTY = [  # Copy modifier data
@@ -652,7 +652,7 @@ class GizmoUpdate(PublicProperty):
         limit_constraints.use_transform_limit = True
         limit_constraints.use_limit_x = True
         limit_constraints.use_limit_y = True
-        limit_constraints.use_limit_z = False  # Use Z R
+        limit_constraints.use_limit_z = True
         con_copy_name = self.G_NAME_CON_COPY_ROTATION
         if con_copy_name in origin_object.constraints.keys():
             copy_constraints = origin.constraints.get(con_copy_name)
