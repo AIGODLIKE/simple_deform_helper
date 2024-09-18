@@ -131,11 +131,18 @@ class DrawHandler(DrawText):
 
 class Draw3D(DrawHandler):
 
-    def draw_post_view(self):
+    def _shader_set_prop_(self):
         gpu.state.line_width_set(1)
         gpu.state.blend_set('ALPHA')
         gpu.state.depth_test_set('ALWAYS')
 
+    def _set_front_(self):
+        gpu.state.line_width_set(1)
+        gpu.state.blend_set('ALPHA')
+        gpu.state.depth_test_set('LESS_EQUAL' if not self.pref.show_wireframe_in_front else 'ALWAYS')
+
+    def draw_post_view(self):
+        self._shader_set_prop_()
         if self.draw_poll:
             self.draw_3d(bpy.context)
 
@@ -154,18 +161,23 @@ class Draw3D(DrawHandler):
             self.draw_bound_box()
 
     def draw_bound_box(self):
+        self._set_front_()
         coords = self.matrix_calculation(self.obj_matrix_world,
                                          self.tow_co_to_coordinate(
                                              self.modifier_bound_co))
         self.draw_smooth_3d_shader(coords, self.G_INDICES, self.pref.bound_box_color)
+        self._shader_set_prop_()
 
     def draw_limits_bound_box(self):
+        self._set_front_()
         self.draw_smooth_3d_shader(self.modifier_limits_bound_box,
                                    self.G_INDICES,
                                    self.pref.limits_bound_box_color,
                                    )
+        self._shader_set_prop_()
 
     def draw_limits_line(self):
+        self._shader_set_prop_()
         up_point, down_point, up_limits, down_limits = \
             self.modifier_limits_point
         # draw limits line
@@ -178,14 +190,19 @@ class Draw3D(DrawHandler):
                             shader_name='UNIFORM_COLOR', draw_type='POINTS')
         self.draw_3d_shader([up_point], (), (1, 0, 0, 0.5),
                             shader_name='UNIFORM_COLOR', draw_type='POINTS')
+        self._shader_set_prop_()
 
     def draw_deform_mesh(self):
+        self._set_front_()
         ob = self.obj
         deform_data = self.G_DeformDrawData
         active = self.modifier
         # draw deform mesh
         if 'simple_deform_bound_data' in deform_data and \
                 self.pref.update_deform_wireframe:
+            gpu.state.line_width_set(1)
+            gpu.state.blend_set('ALPHA')
+            gpu.state.depth_test_set('LESS_EQUAL')
             modifiers = self.get_modifiers_parameter(self.modifier)
             pos, indices, mat, mod_data, limits = deform_data[
                 'simple_deform_bound_data']
@@ -194,6 +211,10 @@ class Draw3D(DrawHandler):
             if modifiers == mod_data and is_mat and is_limits:
                 self.draw_smooth_3d_shader(pos, indices,
                                            self.pref.deform_wireframe_color)
+            self._shader_set_prop_()
+        self._shader_set_prop_()
 
     def draw_origin_error(self):
+        self._set_front_()
         ...
+        self._shader_set_prop_()

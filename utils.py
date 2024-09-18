@@ -652,7 +652,7 @@ class GizmoUpdate(PublicProperty):
         limit_constraints.use_transform_limit = True
         limit_constraints.use_limit_x = True
         limit_constraints.use_limit_y = True
-        limit_constraints.use_limit_z = True
+        limit_constraints.use_limit_z = False  # Use Z R
         con_copy_name = self.G_NAME_CON_COPY_ROTATION
         if con_copy_name in origin_object.constraints.keys():
             copy_constraints = origin.constraints.get(con_copy_name)
@@ -812,7 +812,8 @@ class GizmoUpdate(PublicProperty):
         deform_obj.hide_set(tmh)
 
         self.G_DeformDrawData['simple_deform_bound_data'] = (
-            ver, indices, self.obj_matrix_world, modifiers, limits[:])
+            ver, indices, self.obj_matrix_world, modifiers, limits[:]
+        )
 
 
 class GizmoUtils(GizmoUpdate):
