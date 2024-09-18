@@ -35,22 +35,27 @@ class SimpleDeformHelperToolPanel(Panel, GizmoUtils):
 
             ctrl_obj = mod.origin.SimpleDeformGizmo_PropertyGroup if mod.origin else prop
 
-            layout.prop(ctrl_obj,
+            row = layout.row(align=True)
+            row.prop(ctrl_obj,
                         'origin_mode',
                         text='')
-            layout.prop(pref,
+            row.prop(pref,
                         'update_deform_wireframe',
                         icon='MOD_WIREFRAME',
                         text='')
-            layout.prop(pref,
+            row.prop(pref,
                         'show_set_axis_button',
                         icon='EMPTY_AXIS',
                         text='')
+            row.prop(pref,
+                        'show_wireframe_in_front',
+                        icon='AXIS_FRONT',
+                        text='')
             if pref.modifier_deform_method_is_bend:
-                layout.prop(pref,
+                row.prop(pref,
                             'display_bend_axis_switch_gizmo',
                             toggle=1)
-            layout.prop(pref,
+            row.prop(pref,
                         'modifiers_limits_tolerance',
                         text='')
 

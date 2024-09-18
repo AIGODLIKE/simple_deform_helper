@@ -56,6 +56,8 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
         name='Show Deform Wireframe',
         default=False)
 
+    show_wireframe_in_front: BoolProperty(name="In Front", default=False)
+
     show_set_axis_button: BoolProperty(
         name='Show Set Axis Button',
         default=False)
@@ -81,7 +83,7 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
         col.prop(self, 'deform_wireframe_color')
         col.prop(self, 'bound_box_color')
         col.prop(self, 'limits_bound_box_color')
-        
+
         col.label(text='Gizmo Property Show Location')
         col.prop(self, 'show_gizmo_property_location', expand=True)
 
