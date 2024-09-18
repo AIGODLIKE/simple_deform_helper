@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 
 import math
 import uuid
@@ -89,8 +88,7 @@ stuck due to excessive update frequency
         data = {}
         for obj in bpy.context.selected_objects:
             data[obj.name] = cls.from_mesh_get_triangle_face_co(obj.data)
-        print(data)
-        with open('gizmo.json', 'w+') as f:
+        with open('1gizmo.json', 'w+') as f:
             f.write(json.dumps(data))
 
 

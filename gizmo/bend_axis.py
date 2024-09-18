@@ -1,7 +1,6 @@
 import math
 
-from bpy.types import GizmoGroup
-from bpy_types import Gizmo
+from bpy.types import GizmoGroup,Gizmo
 from mathutils import Euler, Vector
 
 from ..utils import GizmoUtils, GizmoGroupUtils

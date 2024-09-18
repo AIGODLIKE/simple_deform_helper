@@ -1,10 +1,6 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 import math
 
-from bpy.types import Gizmo
-from bpy.types import (
-    GizmoGroup,
-)
+from bpy.types import Gizmo, GizmoGroup
 
 from ..update import ChangeActiveModifierParameter
 from ..utils import GizmoUtils, GizmoGroupUtils
@@ -85,7 +81,7 @@ class AngleGizmo(Gizmo, AngleUpdate):
     bl_target_properties = (
         {'id': 'up_limits', 'type': 'FLOAT', 'array_length': 1},
         {'id': 'down_limits', 'type': 'FLOAT', 'array_length': 1},
-        {'id': 'angle', 'type': 'FLOAT', 'array_length': 1},
+        {'id': 'angle', 'type': 'FLOAT', 'array_length': 1}
     )
 
     __slots__ = (

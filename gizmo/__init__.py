@@ -1,9 +1,10 @@
 import bpy
 
-from .angle_and_factor import AngleGizmoGroup, AngleGizmo
+from .angle_and_factor import AngleGizmo, AngleGizmoGroup
 from .bend_axis import BendAxiSwitchGizmoGroup, CustomGizmo
 from .set_deform_axis import SetDeformGizmoGroup
 from .up_down_limits_point import UpDownLimitsGizmo, UpDownLimitsGizmoGroup
+from .z_rotate import ZRotateGizmo, ZRotateGizmoGroup
 from ..draw import Draw3D
 
 class_list = (
@@ -12,6 +13,9 @@ class_list = (
 
     AngleGizmo,
     AngleGizmoGroup,
+
+    # ZRotateGizmo,
+    # ZRotateGizmoGroup,
 
     CustomGizmo,
     BendAxiSwitchGizmoGroup,
