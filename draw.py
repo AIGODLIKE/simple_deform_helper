@@ -2,7 +2,7 @@ import blf
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 from .update import ChangeActiveObject, simple_update
 from .utils import GizmoUtils
@@ -161,9 +161,8 @@ class Draw3D(DrawHandler):
 
     def draw_bound_box(self):
         self._set_front_()
-        coords = self.matrix_calculation(self.obj_matrix_world,
-                                         self.tow_co_to_coordinate(
-                                             self.modifier_bound_co))
+        mat = Matrix.Translation(Vector((0.0025, 0.0025, 0.0025))) @ self.obj_matrix_world
+        coords = self.matrix_calculation(mat, self.tow_co_to_coordinate(self.modifier_bound_co))
         self.draw_smooth_3d_shader(coords, self.G_INDICES, self.pref.bound_box_color)
         self._shader_set_prop_()
 
