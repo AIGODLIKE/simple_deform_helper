@@ -72,7 +72,6 @@ utils.py:
 module_tuple = (
     panel,
     gizmo,
-    utils,
     update,
     translate,
     operators,

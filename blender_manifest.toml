@@ -9,7 +9,3 @@ tagline = "Simple Deform visualization adjustment tool"
 type = "add-on"
 version = "0.2.2"
 tags = ["3D View", "Object", "Mesh"]
-
-
-[permissions]
-files = "Read Gizmo Data"

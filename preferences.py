@@ -3,17 +3,17 @@ from bpy.props import (FloatProperty,
                        PointerProperty,
                        FloatVectorProperty,
                        EnumProperty,
-                       BoolProperty)
+                       BoolProperty, StringProperty)
 from bpy.types import (
     AddonPreferences,
     PropertyGroup,
 )
 
-from .utils import GizmoUtils
+from .utils import GizmoUtils,PublicData
 
 
 class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
-    bl_idname = GizmoUtils.G_ADDON_NAME
+    bl_idname = __package__
 
     deform_wireframe_color: FloatVectorProperty(
         name='Deform Wireframe',

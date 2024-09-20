@@ -1,4 +1,3 @@
-
 import math
 import uuid
 from functools import cache
@@ -14,7 +13,6 @@ class PublicData:
 Classify each different type of data separately and cache it to avoid getting
 stuck due to excessive update frequency
     """
-    G_CustomShape = {}  #
 
     G_DeformDrawData = {}
     # Save Deform Vertex And Indices,Update data only when updating
@@ -36,7 +34,6 @@ stuck due to excessive update frequency
     G_NAME_EMPTY_AXIS = G_NAME + '_Empty_'
     G_NAME_CON_LIMIT = G_NAME + 'Constraints_Limit_Rotation'  # constraints name
     G_NAME_CON_COPY_ROTATION = G_NAME + 'Constraints_Copy_Rotation'
-    G_ADDON_NAME = __package__  # "simple_deform_helper"
 
     G_MODIFIERS_PROPERTY = [  # Copy modifier data
         'angle',
@@ -52,51 +49,11 @@ stuck due to excessive update frequency
         'vertex_group',
     ]
 
-    @classmethod
-    def load_gizmo_data(cls) -> None:
-        import json
-        import os
-        json_path = os.path.join(os.path.dirname(__file__), "gizmo.json")
-        with open(json_path, "r") as file:
-            cls.G_CustomShape = json.load(file)
-
-    @staticmethod
-    def from_mesh_get_triangle_face_co(mesh: 'bpy.types.Mesh') -> list:
-        """
-        :param mesh: input mesh read vertex
-        :type mesh: bpy.data.meshes
-        :return list: vertex coordinate list[[cox,coy,coz],[cox,coy,coz]...]
-        """
-        import bmesh
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
-        bm.faces.ensure_lookup_table()
-        bm.verts.ensure_lookup_table()
-        bmesh.ops.triangulate(bm, faces=bm.faces)
-        co_list = [list(float(format(j, ".3f")) for j in vert.co) for face in
-                   bm.faces for vert in face.verts]
-        bm.free()
-        return co_list
-
-    @classmethod
-    def from_selected_obj_generate_json(cls):
-        """Export selected object vertex data as gizmo custom paint data
-        The output file should be in the blender folder
-        gizmo.json
-        """
-        import json
-        data = {}
-        for obj in bpy.context.selected_objects:
-            data[obj.name] = cls.from_mesh_get_triangle_face_co(obj.data)
-        with open('1gizmo.json', 'w+') as f:
-            f.write(json.dumps(data))
-
 
 class PublicClass(PublicData):
     @staticmethod
     def pref_() -> "AddonPreferences":
-        return bpy.context.preferences.addons[
-            PublicData.G_ADDON_NAME].preferences
+        return bpy.context.preferences.addons[__package__].preferences
 
     @property
     def pref(self=None) -> 'AddonPreferences':
@@ -841,9 +798,9 @@ class GizmoUtils(GizmoUpdate):
     def init_shape(self):
         if not hasattr(self, 'custom_shape'):
             self.custom_shape = {}
-            for i in self.G_CustomShape:
-                item = self.G_CustomShape[i]
-                self.custom_shape[i] = self.new_custom_shape('TRIS', item)
+            from .src.shape import  __shape__
+            for key,value in __shape__.items():
+                self.custom_shape[key] = self.new_custom_shape('TRIS', value)
 
     def init_setup(self):
         self.init_shape()
@@ -964,15 +921,7 @@ class Tmp:
         for area in bpy.context.screen.areas:
             if area.type == 'PROPERTIES':
                 for space in area.spaces:
-                    if space.type == 'PROPERTIES' and space.context == \
-                            'MODIFIER':
+                    is_m = space.context == 'MODIFIER'
+                    if space.type == 'PROPERTIES' and is_m:
                         return True
         return False
-
-
-def register():
-    PublicData.load_gizmo_data()
-
-
-def unregister():
-    ...
