@@ -7,7 +7,7 @@ Simple Deform Modifier Visual adjustment tool
 
 You can modify parameters more intuitively by dragging the gizmo directly
 
-![emm.jpeg](image/emm.jpeg)
+![emm.jpeg](src/image/emm.jpeg)
 
 To display the gizmo, you need to select the active object and the active modifier is a simple deformation modifier
 
