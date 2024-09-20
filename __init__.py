@@ -1,7 +1,7 @@
 from . import (
-    panel,  #
+    panel,
     gizmo,
-    utils,
+    props,
     update,
     translate,
     operators,
@@ -72,6 +72,7 @@ utils.py:
 module_tuple = (
     panel,
     gizmo,
+    props,
     update,
     translate,
     operators,

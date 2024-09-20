@@ -14,8 +14,8 @@ class_list = (
     AngleGizmo,
     AngleGizmoGroup,
 
-    # ZRotateGizmo,
-    # ZRotateGizmoGroup,
+    ZRotateGizmo,
+    ZRotateGizmoGroup,
 
     CustomGizmo,
     BendAxiSwitchGizmoGroup,
