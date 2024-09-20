@@ -856,6 +856,19 @@ class GizmoUtils(GizmoUpdate):
         if context.area:
             context.area.tag_redraw()
 
+    def get_snap(self, delta, tweak):
+        is_snap = 'SNAP' in tweak
+        is_precise = 'PRECISE' in tweak
+        if is_snap and is_precise:
+            delta = round(delta)
+        elif is_snap:
+            delta //= 5
+            delta *= 5
+        elif is_precise:
+            delta /= self.mouse_dpi
+            delta //= 0.01
+            delta *= 0.01
+        return delta
 
 class GizmoGroupUtils(GizmoUtils):
     bl_space_type = 'VIEW_3D'

@@ -1,15 +1,11 @@
 import bpy
 from bpy.props import (FloatProperty,
-                       PointerProperty,
                        FloatVectorProperty,
                        EnumProperty,
-                       BoolProperty, StringProperty)
-from bpy.types import (
-    AddonPreferences,
-    PropertyGroup,
-)
+                       BoolProperty)
+from bpy.types import AddonPreferences
 
-from .utils import GizmoUtils,PublicData
+from .utils import GizmoUtils
 
 
 class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
@@ -103,74 +99,13 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
             row.prop(mod, show_type)
 
 
-class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
-    def _limits_up(self, context):
-        if self.active_modifier_is_simple_deform:
-            self.modifier.limits[1] = self.up_limits
-
-    up_limits: FloatProperty(name='up',
-                             description='UP Limits(Red)',
-                             default=1,
-                             update=_limits_up,
-                             max=1,
-                             min=0)
-
-    def _limits_down(self, context):
-        if self.active_modifier_is_simple_deform:
-            self.modifier.limits[0] = self.down_limits
-
-    down_limits: FloatProperty(name='down',
-                               description='Lower limit(Green)',
-                               default=0,
-                               update=_limits_down,
-                               max=1,
-                               min=0)
-
-    origin_mode_items = (
-        ('UP_LIMITS',
-         'Follow Upper Limit(Red)',
-         'Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the origin '
-         'position as the upper limit during operation'),
-        ('DOWN_LIMITS',
-         'Follow Lower Limit(Green)',
-         'Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the origin '
-         'position as the lower limit during operation'),
-        ('LIMITS_MIDDLE',
-         'Middle',
-         'Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the '
-         'origin position between the upper and lower limits during operation'),
-        ('MIDDLE',
-         'Bound Middle',
-         'Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the origin '
-         'position as the position between the bounding boxes during operation'),
-        ('NOT', 'No origin operation', ''),
-    )
-
-    origin_mode: EnumProperty(name='Origin control mode',
-                              default='NOT',
-                              items=origin_mode_items)
-
-
-class_list = (
-    SimpleDeformGizmoAddonPreferences,
-    SimpleDeformGizmoObjectPropertyGroup,
-)
-
-register_class, unregister_class = bpy.utils.register_classes_factory(class_list)
-
-
 def register():
-    register_class()
+    bpy.utils.register_class(SimpleDeformGizmoAddonPreferences)
 
     GizmoUtils.pref_().display_bend_axis_switch_gizmo = False
-    bpy.types.Object.SimpleDeformGizmo_PropertyGroup = PointerProperty(
-        type=SimpleDeformGizmoObjectPropertyGroup,
-        name='SimpleDeformGizmo_PropertyGroup')
-    bpy.types.VIEW3D_MT_editor_menus.append(
-        SimpleDeformGizmoAddonPreferences.draw_header_tool_settings)
+    bpy.types.VIEW3D_MT_editor_menus.append(SimpleDeformGizmoAddonPreferences.draw_header_tool_settings)
 
 
 def unregister():
-    unregister_class()
-    bpy.types.VIEW3D_MT_editor_menus.remove(
-        SimpleDeformGizmoAddonPreferences.draw_header_tool_settings)
+    bpy.utils.unregister_class(SimpleDeformGizmoAddonPreferences)
+    bpy.types.VIEW3D_MT_editor_menus.remove(SimpleDeformGizmoAddonPreferences.draw_header_tool_settings)

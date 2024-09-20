@@ -10,19 +10,6 @@ class AngleUpdate(GizmoUtils):
     int_value_degrees: float
     tmp_value_angle: float
 
-    def get_snap(self, delta, tweak):
-        is_snap = 'SNAP' in tweak
-        is_precise = 'PRECISE' in tweak
-        if is_snap and is_precise:
-            delta = round(delta)
-        elif is_snap:
-            delta //= 5
-            delta *= 5
-        elif is_precise:
-            delta /= self.mouse_dpi
-            delta //= 0.01
-            delta *= 0.01
-        return delta
 
     def update_prop_value(self, event, tweak):
         def v(va):
