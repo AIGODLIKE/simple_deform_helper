@@ -31,6 +31,7 @@ class DeformAxisOperator(Operator, GizmoUtils):
 
         origin_object = mod.origin
         origin_object.simple_deform_helper_rotate_axis = self.z_rotate
+        origin_object.simple_deform_helper_rotate_xyz = (self.X_Value, self.Y_Value, self.Z_Value)
         context.object.simple_deform_helper_rotate_axis = self.z_rotate
 
         empty = self.new_origin_empty_object()
@@ -50,12 +51,22 @@ class DeformAxisOperator(Operator, GizmoUtils):
 
         if not event.ctrl:
             self.pref.display_bend_axis_switch_gizmo = False
-        print(self.bl_idname, self.Deform_Axis, self.Is_Positive, self.z_rotate, )
         return {'FINISHED'}
+
+
+class Refresh(Operator, GizmoUtils):
+    bl_idname = 'simple_deform_gizmo.refresh'
+    bl_label = 'Refresh'
+
+    def invoke(self, context, event):
+        self.update_deform_wireframe()
+        self.update_object_origin_matrix()
+        return {"FINISHED"}
 
 
 class_list = (
     DeformAxisOperator,
+    Refresh,
 )
 
 register_class, unregister_class = bpy.utils.register_classes_factory(class_list)

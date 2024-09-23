@@ -2,9 +2,9 @@ import math
 
 import bpy
 from bpy.types import Gizmo, GizmoGroup
-from mathutils import Vector, Matrix
+from mathutils import Vector, Matrix, Euler
 
-from ..utils import GizmoGroupUtils, GizmoUtils
+from ..utils import GizmoGroupUtils, GizmoUtils, PublicData
 
 
 class ZRotateGizmo(Gizmo, GizmoUtils):
@@ -37,6 +37,9 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
         v = self.get_snap(diff, tweak) * 0.005
         angle = (180 * v / math.pi)
         self.target_set_value('angle_value', self.start_angle + math.radians(angle))
+        self.update_deform_wireframe()
+        self.update_object_origin_matrix()
+        self.tag_redraw(context)
         return {'RUNNING_MODAL'}
 
     def exit(self, context, cancel):
@@ -45,8 +48,11 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
             self.target_set_value('angle_value', self.start_angle)
 
     def update_gizmo_matrix(self, context):
-        off = Matrix.Translation(self.origin_object.location)
-        self.matrix_basis = self.obj_matrix_world @ off
+        origin = self.origin_object
+        off = Matrix.Translation(origin.location)
+        con = origin.constraints[PublicData.G_NAME_CON_LIMIT]
+        rotate = Euler((con.max_x, con.max_y, con.max_z), 'XYZ').to_matrix().to_4x4()
+        self.matrix_basis = self.obj_matrix_world @ off @ rotate
 
 
 class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
@@ -63,6 +69,8 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
         active_modify = obj.modifiers.active
         if not active_modify or active_modify.type != "SIMPLE_DEFORM":
             return False
+        if active_modify.deform_method != "BEND":
+            return False
         origin_object = active_modify.origin
         if not origin_object:
             return False
@@ -72,7 +80,9 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
 
     @classmethod
     def poll(cls, context):
-        return cls.simple_deform_show_gizmo_poll(context) and cls.check_origin_object(context)
+        gizmo = cls.simple_deform_show_gizmo_poll(context)
+        origin = cls.check_origin_object(context)
+        return gizmo and origin
 
     def setup(self, context):
         add_data = [
@@ -83,9 +93,10 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
               'alpha': 0.3,
               'color_highlight': (1.0, 1.0, 1.0),
               'alpha_highlight': 0.3,
-              'use_draw_modal': True,
-              'scale_basis': 1.5,
+              'use_draw_modal': False,
+              'scale_basis': 2.5,
               'use_draw_value': False,
+              'use_draw_scale': False,
               'mouse_dpi': 5,
               }),
         ]

@@ -97,6 +97,7 @@ class AngleGizmo(Gizmo, AngleUpdate):
 
         self.update_prop_value(event, tweak)
         self.update_deform_wireframe()
+        self.update_object_origin_matrix()
         self.update_header_text(context)
         ChangeActiveModifierParameter.update_modifier_parameter()
         self.tag_redraw(context)
