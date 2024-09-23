@@ -141,9 +141,10 @@ class Draw3D(DrawHandler):
         gpu.state.depth_test_set('LESS_EQUAL' if not self.pref.show_wireframe_in_front else 'ALWAYS')
 
     def draw_post_view(self):
-        self._shader_set_prop_()
         if self.draw_poll:
+            self._shader_set_prop_()
             self.draw_3d(bpy.context)
+            self._shader_set_prop_()
 
     def draw_3d(self, context):
         if not self.modifier_origin_is_available:

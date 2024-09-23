@@ -68,8 +68,6 @@ def __get_rotate__(self):
 
 
 def __set_rotate__(self, value):
-    # print("__set_rotate__", value)
-
     name = PublicData.G_NAME_CON_LIMIT
     if name not in self.constraints:
         return

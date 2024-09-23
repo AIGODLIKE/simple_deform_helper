@@ -29,7 +29,6 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
 
         self.start_angle = self.origin_object.simple_deform_helper_rotate_angle
         self.start_point = Vector((event.mouse_region_x, event.mouse_region_y))
-        print("invoke", self.start_angle)
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event, tweak):
@@ -38,7 +37,6 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
         v = self.get_snap(diff, tweak) * 0.005
         angle = (180 * v / math.pi)
         self.target_set_value('angle_value', self.start_angle + math.radians(angle))
-        # print("Modal", angle)
         return {'RUNNING_MODAL'}
 
     def exit(self, context, cancel):
