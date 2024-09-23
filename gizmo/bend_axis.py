@@ -45,7 +45,7 @@ class BendAxiSwitchGizmoGroup(GizmoGroup, GizmoGroupUtils):
         _color_b = 0, 1, 0
         r = math.radians(90)
 
-        for na, axis, rot, positive, z_rotate in (
+        for name, axis, rot, positive, z_rotate in (
                 ('top_a', 'X', (r, 0, r), True, 'Y'),
                 ('top_b', 'X', (r, 0, 0), True, 'Y'),
 
@@ -63,10 +63,10 @@ class BendAxiSwitchGizmoGroup(GizmoGroup, GizmoGroupUtils):
 
                 ('back_a', 'Z', (0, 0, 0), True, 'X'),
                 ('back_b', 'X', (0, 0, 0), True, 'Z'),):
-            _a = (na.split('_')[1] == 'a')
-            setattr(self, na, self.gizmos.new(CustomGizmo.bl_idname))
-            gizmo = getattr(self, na)
-            gizmo.mode = na
+            _a = (name.split('_')[1] == 'a')
+            setattr(self, name, self.gizmos.new(CustomGizmo.bl_idname))
+            gizmo = getattr(self, name)
+            gizmo.mode = name
             gizmo.draw_type = _draw_type
             gizmo.color = _color_a if _a else _color_b
             gizmo.alpha = 0.3

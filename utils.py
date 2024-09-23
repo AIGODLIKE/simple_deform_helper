@@ -191,6 +191,19 @@ class GizmoClassMethod(PublicTranslate):
         )
 
     @classmethod
+    def get_constraints_parameter_from_object(cls, obj):
+        def get_prop(bl_prop):
+            return {
+                pn.identifier: getattr(bl_prop, pn.identifier)
+                for pn in bl_prop.bl_rna.properties
+            }
+
+        return {
+            c.name: get_prop(c)
+            for c in obj.constraints
+        }
+
+    @classmethod
     def value_limit(cls, value, max_value=1, min_value=0):
         """
         @param value: limit value
@@ -766,8 +779,14 @@ class GizmoUpdate(PublicProperty):
         deform_obj.hide_viewport = tmv
         deform_obj.hide_set(tmh)
 
+        act = self.obj.modifiers.active
+        if act:
+            con = self.get_constraints_parameter_from_object(act.origin)
+        else:
+            con = self.get_constraints_parameter_from_object(self.obj)
+
         self.G_DeformDrawData['simple_deform_bound_data'] = (
-            ver, indices, self.obj_matrix_world, modifiers, limits[:]
+            ver, indices, self.obj_matrix_world, modifiers, limits[:], con
         )
 
 
@@ -798,8 +817,8 @@ class GizmoUtils(GizmoUpdate):
     def init_shape(self):
         if not hasattr(self, 'custom_shape'):
             self.custom_shape = {}
-            from .src.shape import  __shape__
-            for key,value in __shape__.items():
+            from .src.shape import __shape__
+            for key, value in __shape__.items():
                 self.custom_shape[key] = self.new_custom_shape('TRIS', value)
 
     def init_setup(self):
@@ -869,6 +888,7 @@ class GizmoUtils(GizmoUpdate):
             delta //= 0.01
             delta *= 0.01
         return delta
+
 
 class GizmoGroupUtils(GizmoUtils):
     bl_space_type = 'VIEW_3D'

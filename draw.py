@@ -201,11 +201,21 @@ class Draw3D(DrawHandler):
                 self.pref.update_deform_wireframe:
             self._set_front_()
             modifiers = self.get_modifiers_parameter(self.modifier)
-            pos, indices, mat, mod_data, limits = deform_data[
-                'simple_deform_bound_data']
+
+            act = self.obj.modifiers.active
+            if act:
+                active_con = self.get_constraints_parameter_from_object(act.origin)
+            else:
+                active_con = self.get_constraints_parameter_from_object(self.obj)
+
+            pos, indices, mat, mod_data, limits, con = deform_data['simple_deform_bound_data']
+
+            is_mod = modifiers == mod_data
             is_limits = limits == active.limits[:]
-            is_mat = (ob.matrix_world == mat)
-            if modifiers == mod_data and is_mat and is_limits:
+            is_mat = ob.matrix_world == mat
+            is_con = active_con == con
+
+            if is_mod and is_mat and is_limits and is_con:
                 self.draw_smooth_3d_shader(pos, indices,
                                            self.pref.deform_wireframe_color)
             self._shader_set_prop_()

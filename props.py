@@ -1,7 +1,7 @@
 import math
 
 import bpy
-from bpy.props import PointerProperty, StringProperty, FloatProperty, EnumProperty
+from bpy.props import PointerProperty, StringProperty, FloatProperty, EnumProperty, FloatVectorProperty
 from bpy.types import PropertyGroup
 
 from .utils import PublicData, GizmoUtils
@@ -84,6 +84,7 @@ def register():
         type=SimpleDeformGizmoObjectPropertyGroup,
         name='SimpleDeformGizmo_PropertyGroup')
 
+    bpy.types.Object.simple_deform_helper_rotate_xyz = FloatVectorProperty(step=3, default=(0, 0, 0))
     bpy.types.Object.simple_deform_helper_rotate_angle = FloatProperty(
         name='Origin Object Rotate Angle',
         default=0,
@@ -94,6 +95,7 @@ def register():
         name='Origin Object Rotate Axis',
         default='Z'
     )
+    bpy.types.SimpleDeformModifier
 
 
 def unregister():
