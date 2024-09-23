@@ -1,6 +1,6 @@
 import math
 
-from bpy.types import GizmoGroup,Gizmo
+from bpy.types import GizmoGroup, Gizmo
 from mathutils import Euler, Vector
 
 from ..utils import GizmoUtils, GizmoGroupUtils
@@ -43,25 +43,26 @@ class BendAxiSwitchGizmoGroup(GizmoGroup, GizmoGroupUtils):
         _draw_type = 'SimpleDeform_Bend_Direction_'
         _color_a = 1, 0, 0
         _color_b = 0, 1, 0
+        r = math.radians(90)
 
-        for na, axis, rot, positive in (
-                ('top_a', 'X', (math.radians(90), 0, math.radians(90)), True),
-                ('top_b', 'X', (math.radians(90), 0, 0), True),
+        for na, axis, rot, positive, z_rotate in (
+                ('top_a', 'X', (r, 0, r), True, 'Y'),
+                ('top_b', 'X', (r, 0, 0), True, 'Y'),
 
-                ('bottom_a', 'X', (math.radians(90), 0, math.radians(90)), False),
-                ('bottom_b', 'X', (math.radians(90), 0, 0), False),
+                ('bottom_a', 'X', (r, 0, r), False, 'Y'),
+                ('bottom_b', 'X', (r, 0, 0), False, 'Y'),
 
-                ('left_a', 'Y', (math.radians(90), 0, 0), False),
-                ('left_b', 'Y', (0, 0, 0), False),
+                ('left_a', 'Y', (r, 0, 0), False, 'Y'),
+                ('left_b', 'Y', (0, 0, 0), False, 'Z'),
 
-                ('right_a', 'Y', (math.radians(90), 0, 0), True),
-                ('right_b', 'Y', (0, 0, 0), True),
+                ('right_a', 'Y', (r, 0, 0), True, 'Y'),
+                ('right_b', 'Y', (0, 0, 0), True, 'Z'),
 
-                ('front_a', 'Z', (0, 0, 0), False),
-                ('front_b', 'X', (0, 0, 0), False),
+                ('front_a', 'Z', (0, 0, 0), False, 'X'),
+                ('front_b', 'X', (0, 0, 0), False, 'Z'),
 
-                ('back_a', 'Z', (0, 0, 0), True),
-                ('back_b', 'X', (0, 0, 0), True),):
+                ('back_a', 'Z', (0, 0, 0), True, 'X'),
+                ('back_b', 'X', (0, 0, 0), True, 'Z'),):
             _a = (na.split('_')[1] == 'a')
             setattr(self, na, self.gizmos.new(CustomGizmo.bl_idname))
             gizmo = getattr(self, na)
@@ -81,6 +82,7 @@ class BendAxiSwitchGizmoGroup(GizmoGroup, GizmoGroupUtils):
             ops.Y_Value = rot[1]
             ops.Z_Value = rot[2]
             ops.Is_Positive = positive
+            ops.z_rotate = z_rotate
 
     def draw_prepare(self, context):
         ob = context.object

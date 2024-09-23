@@ -1,6 +1,6 @@
 import bpy
-from bpy.types import Operator
 from bpy.props import FloatProperty, StringProperty, BoolProperty
+from bpy.types import Operator
 
 from .utils import GizmoUtils
 
@@ -12,6 +12,7 @@ class DeformAxisOperator(Operator, GizmoUtils):
     bl_options = {'REGISTER'}
 
     Deform_Axis: StringProperty(default='X', options={'SKIP_SAVE'})
+    z_rotate: StringProperty(default='X', options={'SKIP_SAVE'})
 
     X_Value: FloatProperty(default=-0, options={'SKIP_SAVE'})
     Y_Value: FloatProperty(default=-0, options={'SKIP_SAVE'})
@@ -27,6 +28,11 @@ class DeformAxisOperator(Operator, GizmoUtils):
         self.clear_point_cache()
         mod = context.object.modifiers.active
         mod.deform_axis = self.Deform_Axis
+
+        origin_object = mod.origin
+        origin_object.simple_deform_helper_rotate_axis = self.z_rotate
+        context.object.simple_deform_helper_rotate_axis = self.z_rotate
+
         empty = self.new_origin_empty_object()
         is_positive = self.number_is_positive(mod.angle)
 
@@ -44,6 +50,7 @@ class DeformAxisOperator(Operator, GizmoUtils):
 
         if not event.ctrl:
             self.pref.display_bend_axis_switch_gizmo = False
+        print(self.bl_idname, self.Deform_Axis, self.Is_Positive, self.z_rotate, )
         return {'FINISHED'}
 
 
