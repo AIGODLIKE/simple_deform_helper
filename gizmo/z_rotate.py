@@ -22,7 +22,6 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
 
     def setup(self):
         self.init_setup()
-        print("setup")
 
     def invoke(self, context, event):
         self.init_invoke(context, event)
@@ -107,4 +106,3 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
         self.angle_value.target_set_prop('angle_value',
                                          self.angle_value.origin_object,
                                          'simple_deform_helper_rotate_angle')
-        # print("refresh", self.angle_value)

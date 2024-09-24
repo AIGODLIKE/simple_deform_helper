@@ -7,10 +7,6 @@ owner = object()
 remember_deform_method = {}
 
 
-# def modify_axis(*args):
-#     print('modify_axis', args)
-
-
 def modify_deform_method():
     obj = bpy.context.object
     ma = obj.modifiers.active
@@ -37,16 +33,6 @@ def register():
         args=(),
         notify=modify_deform_method,
     )
-    # for axis in ("X", "Y", "Z"):
-    #     for m in ("min", "max"):
-    #         key = f"{m}_{axis.lower()}"
-    #         bpy.msgbus.subscribe_rna(
-    #             key=(bpy.types.LimitRotationConstraint, key),
-    #             owner=owner,
-    #             args=(key,),
-    #             notify=modify_axis,
-    #         )
-
 
 def unregister():
     bpy.msgbus.clear_by_owner(owner)
