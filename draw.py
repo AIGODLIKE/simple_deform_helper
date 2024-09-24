@@ -81,7 +81,7 @@ class DrawText(DrawPublic):
     def draw_scale_text(self):
         font_id = self.font_info['font_id']
         y = 80
-        blf.size(font_id, 15, 72)
+        blf.size(font_id, 15)
         blf.color(font_id, 1, 1, 1, 1)
         text_list = [
             'The scaling value of the object is not 1',
@@ -91,7 +91,7 @@ class DrawText(DrawPublic):
         ]
         for text in text_list[::-1]:
             blf.position(font_id, 200, y, 0)
-            blf.draw(font_id, self.translate_text(text))
+            blf.draw(font_id, bpy.app.translations.pgettext_iface(text))
             y += 20
 
     @classmethod
