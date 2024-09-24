@@ -89,7 +89,8 @@ def register():
         name='Origin Object Rotate Angle',
         default=0,
         get=__get_rotate__,
-        set=__set_rotate__
+        set=__set_rotate__,
+        subtype="ANGLE"
     )
     bpy.types.Object.simple_deform_helper_rotate_axis = StringProperty(
         name='Origin Object Rotate Axis',
