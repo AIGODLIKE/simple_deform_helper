@@ -239,7 +239,6 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
                     'down_limits', self.int_value_down_limits)
 
     def modal(self, context, event, tweak):
-        st = time()
         self.clear_point_cache()
 
         if self.modifier_is_use_origin_axis:
@@ -258,7 +257,6 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
         return_handle = self.event_handle(event)
         ChangeActiveModifierParameter.update_modifier_parameter()
         self.update_deform_wireframe()
-        # print('run modal time:', time() - st)
         return return_handle
 
 
