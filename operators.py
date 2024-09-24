@@ -29,11 +29,6 @@ class DeformAxisOperator(Operator, GizmoUtils):
         mod = context.object.modifiers.active
         mod.deform_axis = self.Deform_Axis
 
-        origin_object = mod.origin
-        origin_object.simple_deform_helper_rotate_axis = self.z_rotate
-        origin_object.simple_deform_helper_rotate_xyz = (self.X_Value, self.Y_Value, self.Z_Value)
-        context.object.simple_deform_helper_rotate_axis = self.z_rotate
-
         empty = self.new_origin_empty_object()
         is_positive = self.number_is_positive(mod.angle)
 
@@ -51,6 +46,12 @@ class DeformAxisOperator(Operator, GizmoUtils):
 
         if not event.ctrl:
             self.pref.display_bend_axis_switch_gizmo = False
+
+        origin_object = empty
+        origin_object.simple_deform_helper_rotate_axis = self.z_rotate
+        origin_object.simple_deform_helper_rotate_xyz = (self.X_Value, self.Y_Value, self.Z_Value)
+
+
         return {'FINISHED'}
 
 

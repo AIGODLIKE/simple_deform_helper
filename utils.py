@@ -780,7 +780,7 @@ class GizmoUpdate(PublicProperty):
         deform_obj.hide_set(tmh)
 
         act = self.obj.modifiers.active
-        if act:
+        if act and act.origin:
             con = self.get_constraints_parameter_from_object(act.origin)
         else:
             con = self.get_constraints_parameter_from_object(self.obj)

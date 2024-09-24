@@ -203,7 +203,7 @@ class Draw3D(DrawHandler):
             modifiers = self.get_modifiers_parameter(self.modifier)
 
             act = self.obj.modifiers.active
-            if act:
+            if act and act.origin:
                 active_con = self.get_constraints_parameter_from_object(act.origin)
             else:
                 active_con = self.get_constraints_parameter_from_object(self.obj)
