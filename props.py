@@ -50,9 +50,28 @@ class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
         ('NOT', 'No origin operation', ''),
     )
 
-    origin_mode: EnumProperty(name='Origin control mode',
-                              default='NOT',
-                              items=origin_mode_items)
+    def update_origin_mode(self, context):
+        obj = None
+        for o in context.scene.objects:
+            if o.SimpleDeformGizmo_PropertyGroup == self:
+                obj = o
+        if not obj:
+            return
+
+        is_type = obj.type == 'EMPTY'
+        is_name = obj.name.startswith("ViewSimpleDeformGizmo__Empty_")
+        is_origin = obj.parent and getattr(obj.parent.modifiers.active, "origin", None) == obj
+        is_not = self.origin_mode == "NOT"
+        if is_type and is_name and is_origin and is_not:
+            obj.parent.SimpleDeformGizmo_PropertyGroup.origin_mode = "NOT"
+            bpy.data.objects.remove(obj)
+
+    origin_mode: EnumProperty(
+        name='Origin control mode',
+        default='NOT',
+        items=origin_mode_items,
+        update=update_origin_mode
+    )
 
 
 def __get_rotate__(self):
@@ -96,7 +115,6 @@ def register():
         name='Origin Object Rotate Axis',
         default='Z'
     )
-    bpy.types.SimpleDeformModifier
 
 
 def unregister():
