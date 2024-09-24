@@ -75,6 +75,7 @@ translations_dict = {
     "which will cause the deformation of the simple deformation "
     "modifier.": "这将导致简易形变修改器变形",
     "Please apply the scaling before deformation.": "请应用缩放",
+    "Z Rotate": "Z旋转"
 
 }
 

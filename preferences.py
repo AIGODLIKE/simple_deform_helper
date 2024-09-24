@@ -95,8 +95,14 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
                      'deform_axis',
                      expand=True)
 
+            row = row.row(align=True)
+
             show_type = 'angle' if mod.deform_method in ('BEND', 'TWIST') else 'factor'
             row.prop(mod, show_type)
+
+            from .gizmo.z_rotate import ZRotateGizmoGroup
+            if ZRotateGizmoGroup.poll(context):
+                row.prop(mod.origin, "simple_deform_helper_rotate_angle", text="Z Rotate")
 
 
 def register():
