@@ -1,13 +1,15 @@
 from . import (
+    ops,
     panel,
     gizmo,
     props,
     update,
     msgbus,
     translate,
-    operators,
     preferences,
 )
+
+# TODO 曲线文本的修改器支侍
 
 bl_info = {
     "name": "Simple Deform Helper",
@@ -71,13 +73,13 @@ utils.py:
 # -------------------------
 """
 module_tuple = (
+    ops,
     panel,
     gizmo,
     props,
     update,
     msgbus,
     translate,
-    operators,
     preferences,
 )
 
