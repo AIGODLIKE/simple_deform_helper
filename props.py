@@ -121,5 +121,6 @@ def unregister():
     bpy.utils.unregister_class(SimpleDeformGizmoObjectPropertyGroup)
     del bpy.types.Object.SimpleDeformGizmo_PropertyGroup
 
+    del bpy.types.Object.simple_deform_helper_rotate_xyz
     del bpy.types.Object.simple_deform_helper_rotate_angle
     del bpy.types.Object.simple_deform_helper_rotate_axis

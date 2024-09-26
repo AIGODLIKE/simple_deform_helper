@@ -106,3 +106,4 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
         self.angle_value.target_set_prop('angle_value',
                                          self.angle_value.origin_object,
                                          'simple_deform_helper_rotate_angle')
+    

@@ -5,7 +5,7 @@ from bpy.props import (FloatProperty,
                        BoolProperty)
 from bpy.types import AddonPreferences
 
-from .utils import GizmoUtils
+from .utils import GizmoUtils, get_pref
 
 
 class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
@@ -108,7 +108,7 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
 def register():
     bpy.utils.register_class(SimpleDeformGizmoAddonPreferences)
 
-    GizmoUtils.pref_().display_bend_axis_switch_gizmo = False
+    get_pref().display_bend_axis_switch_gizmo = False
     bpy.types.VIEW3D_MT_editor_menus.append(SimpleDeformGizmoAddonPreferences.draw_header_tool_settings)
 
 

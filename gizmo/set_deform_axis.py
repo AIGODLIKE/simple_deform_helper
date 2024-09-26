@@ -1,7 +1,7 @@
 from bpy.types import GizmoGroup
 from mathutils import Vector
 
-from ..utils import GizmoGroupUtils
+from ..utils import GizmoGroupUtils,get_pref
 
 
 class SetDeformGizmoGroup(GizmoGroup, GizmoGroupUtils):
@@ -10,7 +10,7 @@ class SetDeformGizmoGroup(GizmoGroup, GizmoGroupUtils):
 
     @classmethod
     def poll(cls, context):
-        return cls.simple_deform_show_gizmo_poll(context) and cls.pref_().show_set_axis_button
+        return cls.simple_deform_show_gizmo_poll(context) and get_pref().show_set_axis_button
 
     def setup(self, context):
         data_path = 'object.modifiers.active.deform_axis'
