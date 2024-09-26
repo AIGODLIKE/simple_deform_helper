@@ -1,4 +1,4 @@
-bpy.types.Operator
+from bpy.types import Operator
 
 
 class KeyFrame(Operator):

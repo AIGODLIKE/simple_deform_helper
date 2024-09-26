@@ -51,16 +51,17 @@ stuck due to excessive update frequency
 
 
 class PublicClass(PublicData):
-    @staticmethod
-    def pref_() -> "AddonPreferences":
-        return bpy.context.preferences.addons[__package__].preferences
 
     @property
-    def pref(self=None) -> 'AddonPreferences':
+    def pref(self) -> 'AddonPreferences':
         """
         :return: AddonPreferences
         """
-        return PublicClass.pref_()
+        return get_pref()
+
+
+def get_pref():
+    return bpy.context.preferences.addons[__package__].preferences
 
 
 class PublicPoll(PublicClass):
@@ -84,7 +85,7 @@ class PublicPoll(PublicClass):
         if not mod:
             return False
 
-        available_obj_type = cls.obj_type_is_mesh_or_lattice(obj)
+        available_obj_type = cls.obj_type_is_usable(obj)
         is_available_obj = cls.mod_is_simple_deform_type(
             mod) and available_obj_type
         is_obj_mode = cls.poll_context_mode_is_object()
@@ -133,7 +134,7 @@ class PublicPoll(PublicClass):
         """
         Show D
         """
-        switch_axis = cls.pref_().display_bend_axis_switch_gizmo
+        switch_axis = get_pref().display_bend_axis_switch_gizmo
         bend = cls.poll_simple_deform_modifier_is_bend(context)
         return switch_axis and bend
 
@@ -322,8 +323,8 @@ class GizmoClassMethod(PublicTranslate):
         return mod and mod.type == 'SIMPLE_DEFORM'
 
     @classmethod
-    def obj_type_is_mesh_or_lattice(cls, obj: 'bpy.types.Object'):
-        return obj and (obj.type in ('MESH', 'LATTICE'))
+    def obj_type_is_usable(cls, obj: 'bpy.types.Object'):
+        return obj and (obj.type in ('MESH', 'LATTICE', 'CURVE', 'FONT'))
 
     @classmethod
     def from_vertices_new_mesh(cls, name, vertices):
@@ -657,7 +658,7 @@ class GizmoUpdate(PublicProperty):
     def update_multiple_modifiers_data(self):
         obj = self.obj
         context = bpy.context
-        if not self.obj_type_is_mesh_or_lattice(
+        if not self.obj_type_is_usable(
                 obj) or not self.poll_modifier_type_is_simple(context):
             return
         self.clear_point_cache()
@@ -893,9 +894,7 @@ class GizmoUtils(GizmoUpdate):
 class GizmoGroupUtils(GizmoUtils):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
-    bl_options = {'3D',
-                  'PERSISTENT',
-                  }
+    bl_options = {'3D', 'PERSISTENT'}
 
 
 class Tmp:

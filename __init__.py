@@ -1,6 +1,6 @@
 from . import (
     ops,
-    panel,
+    ui,
     gizmo,
     props,
     update,
@@ -74,7 +74,7 @@ utils.py:
 """
 module_tuple = (
     ops,
-    panel,
+    ui,
     gizmo,
     props,
     update,
