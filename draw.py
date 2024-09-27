@@ -1,11 +1,12 @@
 import blf
 import bpy
 import gpu
+import numpy as np
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector, Matrix
 
 from .update import ChangeActiveObject, simple_update
-from .utils import GizmoUtils
+from .utils import GizmoUtils, get_loc_matrix, from_curve_get_animation_offset
 
 
 class DrawPublic(GizmoUtils):
@@ -197,8 +198,10 @@ class Draw3D(DrawHandler):
         deform_data = self.G_DeformDrawData
         active = self.modifier
         # draw deform mesh
-        if 'simple_deform_bound_data' in deform_data and \
-                self.pref.update_deform_wireframe:
+        if (
+                'simple_deform_bound_data' in deform_data and
+                self.pref.update_deform_wireframe
+        ):
             self._set_front_()
             modifiers = self.get_modifiers_parameter(self.modifier)
 

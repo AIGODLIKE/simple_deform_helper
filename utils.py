@@ -8,6 +8,46 @@ from bpy.types import AddonPreferences
 from mathutils import Vector, Matrix, Euler
 
 
+def get_pref():
+    return bpy.context.preferences.addons[__package__].preferences
+
+
+def get_loc_matrix(location: Vector) -> Matrix:
+    return Matrix.Translation(location)
+
+
+def get_rot_matrix(rotation: Euler) -> Matrix:
+    return rotation.to_matrix().to_4x4()
+
+
+def get_sca_matrix(scale: Vector):
+    scale_mx = Matrix()
+    for i in range(3):
+        scale_mx[i][i] = scale[i]
+    return scale_mx
+
+
+def from_curve_get_animation_offset(obj: bpy.types.Object, default=None) -> Vector:
+    """When the curve is animated, the origin will be changed to the start of the curve.
+    """
+    if obj.type == "CURVE" and obj.data.use_path:
+        # 处理曲线使用动画路径情况
+        try:
+            dep = bpy.context.evaluated_depsgraph_get()
+            spline = obj.evaluated_get(dep).data.splines[0]
+            if spline.type == "BEZIER":
+                # bpy.data.curves["BézierCircle.001"].splines[1].bezier_points[2].co[0]
+                sl = Vector(spline.bezier_points[0].co[:])
+            else:
+                # 'POLY', 'BEZIER', 'NURBS'
+                sl = Vector(spline.points[0].co[:])
+                # bpy.data.curves["BézierCircle.001"].splines[0].points[0].co[1]
+            return sl
+        except Exception as e:
+            print("Curve use_path Error", e.args)
+    return default
+
+
 class PublicData:
     """Public data class, where all fixed data will be placed
 Classify each different type of data separately and cache it to avoid getting
@@ -58,10 +98,6 @@ class PublicClass(PublicData):
         :return: AddonPreferences
         """
         return get_pref()
-
-
-def get_pref():
-    return bpy.context.preferences.addons[__package__].preferences
 
 
 class PublicPoll(PublicClass):
@@ -261,10 +297,31 @@ class GizmoClassMethod(PublicTranslate):
             list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
             obj.data.points.foreach_get('co_deform', list_vertices)
             list_vertices = list_vertices.reshape(ver_len, 3)
+        elif obj.type == 'CURVE':
+            list_vertices = None
+            for spline in obj.data.splines:
+                pl = spline.points.__len__()
+                bl = spline.bezier_points.__len__()
+                data = None
+                if pl:
+                    p_co = np.zeros(pl * 3, dtype=np.float32)
+                    spline.points.foreach_get('co', p_co)
+                    data = p_co.reshape(pl, 3)
+                if bl:
+                    b_co = np.zeros(bl * 3, dtype=np.float32)
+                    spline.bezier_points.foreach_get('co', b_co)
+                    data = b_co.reshape(bl, 3)
+                if data is not None:
+                    if list_vertices is None:
+                        list_vertices = data
+                    else:
+                        list_vertices = np.concatenate((list_vertices, data))
         else:
             list_vertices = np.zeros((3, 3), dtype=np.float32)
-        return Vector(list_vertices.min(axis=0)).freeze(), Vector(
-            list_vertices.max(axis=0)).freeze()
+        return (
+            Vector(list_vertices.min(axis=0)).freeze(),
+            Vector(list_vertices.max(axis=0)).freeze(),
+        )
 
     @classmethod
     def matrix_calculation(cls, mat: 'Matrix',
@@ -429,15 +486,10 @@ class PublicProperty(GizmoClassMethod):
     # --------------- Cache Data ----------------------
     @property
     def modifier_bound_co(self):
-        def get_bound_co_data():
-            key = 'self.modifier.name'
-            if key not in self.G_MultipleModifiersBoundData:
-                self.G_MultipleModifiersBoundData[
-                    key] = self.get_mesh_max_min_co(self.obj)
-            return self.G_MultipleModifiersBoundData[key]
-
-        return self.G_MultipleModifiersBoundData.get(self.modifier.name,
-                                                     get_bound_co_data())
+        key = 'self.modifier.name'
+        if key not in self.G_MultipleModifiersBoundData:
+            self.G_MultipleModifiersBoundData[key] = self.get_mesh_max_min_co(self.obj)
+        return self.G_MultipleModifiersBoundData[key]
 
     @property
     def modifier_bound_box_pos(self):
@@ -640,20 +692,30 @@ class GizmoUpdate(PublicProperty):
         if self.modifier_is_have_origin:
             origin_mode = self.origin_mode
             origin_object = self.modifier.origin
+
+            loc = None
             if origin_mode == 'UP_LIMITS':
-                origin_object.matrix_world.translation = Vector(
-                    self.point_limits_up)
+                loc = Vector(self.point_limits_up)
             elif origin_mode == 'DOWN_LIMITS':
-                origin_object.matrix_world.translation = Vector(
-                    self.point_limits_down)
+                loc = Vector(self.point_limits_down)
             elif origin_mode == 'LIMITS_MIDDLE':
-                translation = (
-                                      self.point_limits_up +
-                                      self.point_limits_down) / 2
-                origin_object.matrix_world.translation = translation
+                loc = (self.point_limits_up + self.point_limits_down) / 2
             elif origin_mode == 'MIDDLE':
-                translation = (self.point_up + self.point_down) / 2
-                origin_object.matrix_world.translation = translation
+                loc = (self.point_up + self.point_down) / 2
+
+            # set matrix
+            if loc:
+                loc_mat = get_loc_matrix(loc)
+                rot = get_rot_matrix(self.obj.matrix_world.to_euler())
+                scl = get_sca_matrix(self.obj.matrix_world.to_scale())
+
+                curve_offset = from_curve_get_animation_offset(self.obj)
+                if curve_offset is not None:
+                    mat = loc_mat @ (scl @ rot @ get_loc_matrix(curve_offset).inverted())
+                    origin_object.matrix_world = mat
+                    return
+
+                origin_object.matrix_world = loc_mat  # @ rot
 
     def update_multiple_modifiers_data(self):
         obj = self.obj
@@ -704,6 +766,8 @@ class GizmoUpdate(PublicProperty):
         if not self.pref.update_deform_wireframe:
             return
         name = self.modifier.name
+        if name not in self.G_MultipleModifiersBoundData:
+            return
         deform_name = self.G_DEFORM_MESH_NAME
 
         co = self.G_MultipleModifiersBoundData[name]
@@ -738,6 +802,15 @@ class GizmoUpdate(PublicProperty):
         deform_obj.location = center
         deform_obj.scale = scale
 
+        if self.obj.type == "CURVE" and self.obj.data.use_path:
+            """Handling Curve Origin Offsets"""
+            loc_mat = get_loc_matrix(center)
+            curve_offset = from_curve_get_animation_offset(self.obj)
+            if curve_offset is not None:
+                mat = (loc_mat @ get_loc_matrix(curve_offset).inverted())
+                t = mat.to_translation()
+                deform_obj.location = t
+
         # Update Modifier data
         mods = deform_obj.modifiers
         mods.clear()
@@ -751,6 +824,7 @@ class GizmoUpdate(PublicProperty):
         context = bpy.context
         obj = self.get_depsgraph(deform_obj)
         matrix = deform_obj.matrix_world.copy()
+
         ver_len = obj.data.vertices.__len__()
         edge_len = obj.data.edges.__len__()
         if 'numpy_data' not in self.G_DeformDrawData:
