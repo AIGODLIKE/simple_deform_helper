@@ -2,12 +2,9 @@ import bpy
 
 from .deform_axis import DeformAxisOperator
 from .key_frame import KeyFrame, RemoveFrame
-from .refresh import Refresh
 
 class_list = (
     DeformAxisOperator,
-
-    Refresh,
 
     KeyFrame,
     RemoveFrame,

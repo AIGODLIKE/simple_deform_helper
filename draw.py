@@ -1,12 +1,11 @@
 import blf
 import bpy
 import gpu
-import numpy as np
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector, Matrix
 
 from .update import ChangeActiveObject, simple_update
-from .utils import GizmoUtils, get_loc_matrix, from_curve_get_animation_offset
+from .utils import GizmoUtils
 
 
 class DrawPublic(GizmoUtils):
@@ -41,8 +40,7 @@ class DrawPublic(GizmoUtils):
     def draw_poll(self) -> bool:
         if simple_update.timers_update_poll():
             is_switch_obj = ChangeActiveObject.is_change_active_object(False)
-            if self.poll_simple_deform_public(
-                    bpy.context) and not is_switch_obj:
+            if self.poll_simple_deform_public(bpy.context) and not is_switch_obj:
                 return True
         return False
 
