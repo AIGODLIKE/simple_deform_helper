@@ -184,7 +184,6 @@ class GizmoUpdate(GizmoProperty):
         context.area.header_text_set(text)
 
     def restore_value(self):
-        print('restore_value', self)
         self.target_set_value('up_limits', 1)
         self.target_set_value('down_limits', 0)
 
