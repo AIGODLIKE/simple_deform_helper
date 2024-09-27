@@ -9,7 +9,7 @@ from . import (
     preferences,
 )
 
-# TODO 曲线文本的修改器支侍
+# TODO 文本的修改器支侍
 
 bl_info = {
     "name": "Simple Deform Helper",
