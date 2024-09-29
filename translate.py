@@ -75,11 +75,15 @@ translations_dict = {
     "which will cause the deformation of the simple deformation "
     "modifier.": "这将导致简易形变修改器变形",
     "Please apply the scaling before deformation.": "请应用缩放",
-    "Z Rotate": "Z扭转"
+    "Z Rotate": "Z扭转",
+    "Simple Deform Animated": "简易形变动画",
+    "Simple Deform Property": "简易形变属性",
+    "Insert Keyframe": "插入关键帧",
+    "Remove Keyframe": "删除关键帧",
 }
 
 
-class TranslationHelper():
+class TranslationHelper:
     def __init__(self, name: str, data: dict, lang='zh_CN'):
         self.name = name
         self.translations_dict = dict()
@@ -93,15 +97,12 @@ class TranslationHelper():
     def register(self):
         try:
             bpy.app.translations.register(self.name, self.translations_dict)
-        except(ValueError):
-            pass
+        except ValueError as e:
+            print("Register Translation", e.args)
 
     def unregister(self):
         bpy.app.translations.unregister(self.name)
 
-
-# Set
-############
 
 SimpleDeform_CN = TranslationHelper('SimpleDeform_CN', translations_dict)
 SimpleDeform_HANS = TranslationHelper('SimpleDeform_HANS', translations_dict, lang='zh_HANS')

@@ -5,7 +5,7 @@ group_name = "Simple Deform Gizmo"
 
 class KeyFrame(Operator):
     bl_idname = 'simple_deform_gizmo.key_frame'
-    bl_label = 'Key Frame'
+    bl_label = 'Insert Keyframe'
 
     def execute(self, context):
         mod = context.object.modifiers.active
@@ -25,7 +25,7 @@ class KeyFrame(Operator):
 
 class RemoveFrame(Operator):
     bl_idname = 'simple_deform_gizmo.key_remove_frame'
-    bl_label = 'Remove Frame'
+    bl_label = 'Remove Keyframe'
 
     def execute(self, context):
         mod = context.object.modifiers.active
