@@ -62,9 +62,9 @@ class SimpleDeformPropertyPanel(Panel, Info):
                     'show_wireframe_in_front',
                     icon='AXIS_FRONT', )
         if pref.modifier_deform_method_is_bend:
-            columnrow.prop(pref,
-                           'display_bend_axis_switch_gizmo',
-                           toggle=1)
+            column.prop(pref,
+                        'display_bend_axis_switch_gizmo',
+                        toggle=1)
         column.prop(pref,
                     'modifiers_limits_tolerance',
                     text='')
