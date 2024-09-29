@@ -121,12 +121,12 @@ class PublicPoll(PublicClass):
         if not mod:
             return False
 
-        available_obj_type = cls.obj_type_is_usable(obj)
-        is_available_obj = cls.mod_is_simple_deform_type(
+        available_obj_type = GizmoClassMethod.obj_type_is_usable(obj)
+        is_available_obj = GizmoClassMethod.mod_is_simple_deform_type(
             mod) and available_obj_type
-        is_obj_mode = cls.poll_context_mode_is_object()
+        is_obj_mode = PublicPoll.poll_context_mode_is_object()
         show_mod = mod.show_viewport
-        not_is_self_mesh = obj.name != cls.G_NAME
+        not_is_self_mesh = obj.name != PublicPoll.G_NAME
         return is_available_obj and is_obj_mode and show_mod and \
             not_is_self_mesh
 
