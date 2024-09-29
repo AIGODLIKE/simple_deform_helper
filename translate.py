@@ -1,5 +1,7 @@
 import bpy
 
+from .utils import get_language_list
+
 
 def origin_text(a, b):
     return "Add an empty object origin as the rotation axis (if there is an " \
@@ -104,21 +106,24 @@ class TranslationHelper:
         bpy.app.translations.unregister(self.name)
 
 
-SimpleDeform_CN = TranslationHelper('SimpleDeform_CN', translations_dict)
-SimpleDeform_HANS = TranslationHelper('SimpleDeform_HANS', translations_dict, lang='zh_HANS')
+all_language = get_language_list()
+
+
+def get_language(language):
+    if language not in all_language:
+        if bpy.app.version < (4, 0, 0):
+            return "zh_CN"
+        else:
+            return "zh_HANS"
+    return language
+
+
+SimpleDeform_CN = TranslationHelper('SimpleDeform_CN', translations_dict, lang=get_language('zh_HANS'))
 
 
 def register():
-    if bpy.app.version < (4, 0, 0):
-        SimpleDeform_CN.register()
-    else:
-        SimpleDeform_CN.register()
-        SimpleDeform_HANS.register()
+    SimpleDeform_CN.register()
 
 
 def unregister():
-    if bpy.app.version < (4, 0, 0):
-        SimpleDeform_CN.unregister()
-    else:
-        SimpleDeform_CN.unregister()
-        SimpleDeform_HANS.unregister()
+    SimpleDeform_CN.unregister()
