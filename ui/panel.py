@@ -76,8 +76,6 @@ class SimpleDeformAnimatedPanel(Panel, Info):
 
     bl_parent_id = SimpleDeformPanel.bl_idname
 
-    # bl_options = {"HIDE_HEADER"}
-
     def draw(self, context):
         layout = self.layout
         layout.scale_y = 1.2
