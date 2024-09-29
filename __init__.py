@@ -9,12 +9,10 @@ from . import (
     preferences,
 )
 
-# TODO 文本的修改器支侍
-
 bl_info = {
     "name": "Simple Deform Helper",
     "author": "AIGODLIKE Community:小萌新",
-    "version": (0, 2, 3),
+    "version": (0, 2, 4),
     "blender": (4, 0, 0),
     "location": "3D View -> Select an object and the active modifier is "
                 "simple deformation",
@@ -24,6 +22,9 @@ bl_info = {
 }
 
 """
+TODO 文本的修改器支侍，暂时未找到解决方法获取原始加界框
+Text modifier support , have not yet found a solution to get the original bounding box
+
 # -------------------------
 __init__.py:
     Register All Module
