@@ -32,12 +32,21 @@ class RemoveFrame(Operator):
         origin = mod.origin
         for prop in mod.bl_rna.properties:
             if prop.is_animatable:
-                mod.keyframe_delete(prop.identifier, group=group_name)
+                try:
+                    mod.keyframe_delete(prop.identifier, group=group_name)
+                except Exception:
+                    pass
 
         if origin and "ViewSimpleDeformGizmo__Empty_" in origin.name:
-            origin.keyframe_delete("location", group=group_name)
+            try:
+                origin.keyframe_delete("location", group=group_name)
+            except Exception:
+                pass
             for con in origin.constraints:
                 for prop in con.bl_rna.properties:
                     if prop.is_animatable:
-                        con.keyframe_delete(prop.identifier, group=group_name)
+                        try:
+                            con.keyframe_delete(prop.identifier, group=group_name)
+                        except Exception:
+                            pass
         return {"FINISHED"}
