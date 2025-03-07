@@ -7,7 +7,7 @@ __shape__ = {
 }
 
 
-def from_mesh_get_triangle_face_co(mesh: 'bpy.types.Mesh') -> list:
+def from_mesh_get_triangle_face_co(mesh: "bpy.types.Mesh") -> list:
   """
   :param mesh: input mesh read vertex
   :type mesh: bpy.data.meshes
@@ -25,7 +25,7 @@ def from_mesh_get_triangle_face_co(mesh: 'bpy.types.Mesh') -> list:
   return co_list
 
 
-def from_selected_obj_generate_json(cls):
+def from_selected_obj_generate_json():
   """Export selected object vertex data as gizmo custom paint data
   The output file should be in the blender folder
   gizmo.json
@@ -33,6 +33,6 @@ def from_selected_obj_generate_json(cls):
   import json
   data = {}
   for obj in bpy.context.selected_objects:
-    data[obj.name] = cls.from_mesh_get_triangle_face_co(obj.data)
-  with open('1gizmo.json', 'w+') as f:
+    data[obj.name] = from_mesh_get_triangle_face_co(obj.data)
+  with open("1gizmo.json", "w+") as f:
     f.write(json.dumps(data))

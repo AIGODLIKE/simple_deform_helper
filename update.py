@@ -37,7 +37,7 @@ class update_public:
     @classmethod
     def clear_cache_events(cls):
         for cl in cls._events_func_list.keys():
-            if getattr(cl, 'clear_cache', False):
+            if getattr(cl, "clear_cache", False):
                 cl.clear_cache()
 
     @classmethod
@@ -63,7 +63,7 @@ class update_public:
         if not timers.is_registered(func):
             timers.register(func, persistent=True)
         else:
-            print('cls timers is registered', cls)
+            print("cls timers is registered", cls)
 
     @classmethod
     def unregister(cls):
@@ -72,7 +72,7 @@ class update_public:
         if timers.is_registered(func):
             timers.unregister(func)
         else:
-            print('cls timers is not registered', cls)
+            print("cls timers is not registered", cls)
         cls._events_func_list.clear()
 
 
@@ -104,7 +104,7 @@ class ChangeActiveObject(simple_update):
         import bpy
         obj = bpy.context.object
         name = obj.name
-        key = 'active_object'
+        key = "active_object"
         if key not in cls.tmp_save_data or cls.tmp_save_data[key] != name:
             if change_data:
                 cls.tmp_save_data[key] = name
@@ -126,26 +126,26 @@ class ChangeActiveSimpleDeformModifier(simple_update):
         modifiers = cls.get_modifiers_data(obj)
 
         def update():
-            cls.tmp_save_data['modifiers'] = modifiers
+            cls.tmp_save_data["modifiers"] = modifiers
 
         if ChangeActiveObject.update_poll():
             update()
-        elif 'modifiers' not in cls.tmp_save_data:
+        elif "modifiers" not in cls.tmp_save_data:
             update()
-        elif cls.tmp_save_data['modifiers'] != modifiers:
+        elif cls.tmp_save_data["modifiers"] != modifiers:
             update()
             return True
         return False
 
     @classmethod
     def get_modifiers_data(cls, obj):
-        return {'obj': obj.name,
-                'active_modifier': getattr(obj.modifiers.active, 'name', None),
-                'modifiers': list(i.name for i in obj.modifiers)}
+        return {"obj": obj.name,
+                "active_modifier": getattr(obj.modifiers.active, "name", None),
+                "modifiers": list(i.name for i in obj.modifiers)}
 
 
 class ChangeActiveModifierParameter(simple_update):
-    key = 'active_modifier_parameter'
+    key = "active_modifier_parameter"
 
     @classmethod
     @cache

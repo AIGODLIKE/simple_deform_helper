@@ -8,10 +8,10 @@ from ..utils import GizmoGroupUtils, GizmoUtils, PublicData
 
 
 class ZRotateGizmo(Gizmo, GizmoUtils):
-    bl_idname = 'ZRotateGizmo'
+    bl_idname = "ZRotateGizmo"
 
     bl_target_properties = (
-        {'id': 'angle_value', 'type': 'FLOAT', 'array_length': 1},
+        {"id": "angle_value", "type": "FLOAT", "array_length": 1},
     )
     start_point: Vector
     start_angle: float
@@ -35,28 +35,28 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
         diff = mouse.x - self.start_point.x
         v = self.get_snap(diff, tweak) * 0.005
         angle = (180 * v / math.pi)
-        self.target_set_value('angle_value', self.start_angle + math.radians(angle))
+        self.target_set_value("angle_value", self.start_angle + math.radians(angle))
         self.update_deform_wireframe()
         self.update_object_origin_matrix()
         self.tag_redraw(context)
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
 
     def exit(self, context, cancel):
         context.area.header_text_set(None)
         if cancel:
-            self.target_set_value('angle_value', self.start_angle)
+            self.target_set_value("angle_value", self.start_angle)
 
     def update_gizmo_matrix(self, context):
         origin = self.origin_object
         off = Matrix.Translation(origin.location)
         con = origin.constraints[PublicData.G_NAME_CON_LIMIT]
-        rotate = Euler((con.max_x, con.max_y, con.max_z), 'XYZ').to_matrix().to_4x4()
+        rotate = Euler((con.max_x, con.max_y, con.max_z), "XYZ").to_matrix().to_4x4()
         self.matrix_basis = self.obj_matrix_world @ off @ rotate
 
 
 class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
-    bl_idname = 'OBJECT_GGT_SimpleDeform_Z_Rotate_GizmoGroup'
-    bl_label = 'Z Rotate'
+    bl_idname = "OBJECT_GGT_SimpleDeform_Z_Rotate_GizmoGroup"
+    bl_label = "Z Rotate"
 
     @classmethod
     def check_origin_object(cls, context) -> bool:
@@ -85,25 +85,25 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
 
     def setup(self, context):
         add_data = [
-            ('angle_value',
+            ("angle_value",
              ZRotateGizmo.bl_idname,
-             {'draw_type': 'Z_Rotate',
-              'color': (1.0, 0.5, 1.0),
-              'alpha': 0.3,
-              'color_highlight': (1.0, 1.0, 1.0),
-              'alpha_highlight': 0.3,
-              'use_draw_modal': False,
-              'scale_basis': 2.5,
-              'use_draw_value': False,
-              'use_draw_scale': False,
-              'mouse_dpi': 5,
+             {"draw_type": "Z_Rotate",
+              "color": (1.0, 0.5, 1.0),
+              "alpha": 0.3,
+              "color_highlight": (1.0, 1.0, 1.0),
+              "alpha_highlight": 0.3,
+              "use_draw_modal": False,
+              "scale_basis": 2.5,
+              "use_draw_value": False,
+              "use_draw_scale": False,
+              "mouse_dpi": 5,
               }),
         ]
 
         self.generate_gizmo(add_data)
 
     def refresh(self, context):
-        self.angle_value.target_set_prop('angle_value',
+        self.angle_value.target_set_prop("angle_value",
                                          self.angle_value.origin_object,
-                                         'simple_deform_helper_rotate_angle')
+                                         "simple_deform_helper_rotate_angle")
     

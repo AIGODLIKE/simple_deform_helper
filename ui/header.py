@@ -5,17 +5,17 @@ from ..utils import GizmoUtils, get_pref
 
 
 class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Tool'
-    bl_context = '.objectmode'
-    bl_label = 'Simple Deform Helper'
-    bl_idname = 'VIEW3D_PT_simple_deform_helper'
-    bl_parent_id = 'VIEW3D_PT_tools_object_options'
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Tool"
+    bl_context = ".objectmode"
+    bl_label = "Simple Deform Helper"
+    bl_idname = "VIEW3D_PT_simple_deform_helper"
+    bl_parent_id = "VIEW3D_PT_tools_object_options"
 
     @classmethod
     def poll(cls, context):
-        show_in_tool_options = get_pref().show_gizmo_property_location == 'ToolOptions'
+        show_in_tool_options = get_pref().show_gizmo_property_location == "ToolOptions"
         return cls.poll_simple_deform_public(context) and show_in_tool_options
 
     def draw(self, context):
@@ -35,30 +35,30 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
 
             row = layout.row(align=True)
             row.prop(ctrl_obj,
-                     'origin_mode',
-                     text='')
+                     "origin_mode",
+                     text="")
             row.prop(pref,
-                     'update_deform_wireframe',
-                     icon='MOD_WIREFRAME',
-                     text='')
+                     "update_deform_wireframe",
+                     icon="MOD_WIREFRAME",
+                     text="")
             row.prop(pref,
-                     'show_set_axis_button',
-                     icon='EMPTY_AXIS',
-                     text='')
+                     "show_set_axis_button",
+                     icon="EMPTY_AXIS",
+                     text="")
             row.prop(pref,
-                     'show_wireframe_in_front',
-                     icon='AXIS_FRONT',
-                     text='')
+                     "show_wireframe_in_front",
+                     icon="AXIS_FRONT",
+                     text="")
             if pref.modifier_deform_method_is_bend:
                 row.prop(pref,
-                         'display_bend_axis_switch_gizmo',
+                         "display_bend_axis_switch_gizmo",
                          toggle=1)
             row.prop(pref,
-                     'modifiers_limits_tolerance',
-                     text='')
+                     "modifiers_limits_tolerance",
+                     text="")
 
     def draw_settings(self, context):
-        show_in_settings = get_pref().show_gizmo_property_location == 'ToolSettings'
+        show_in_settings = get_pref().show_gizmo_property_location == "ToolSettings"
         if show_in_settings:
             SimpleDeformHelperToolHeader.draw_property(self.layout, context)
 

@@ -22,11 +22,11 @@ class GizmoProperty(GizmoUtils):
 
     @property
     def is_up_limits_mode(self):
-        return self.ctrl_mode == 'up_limits'
+        return self.ctrl_mode == "up_limits"
 
     @property
     def is_down_limits_mode(self):
-        return self.ctrl_mode == 'down_limits'
+        return self.ctrl_mode == "down_limits"
 
     @property
     def limit_scope(self):
@@ -128,89 +128,89 @@ class GizmoUpdate(GizmoProperty):
 
     def set_down_value(self, event):
         value = self.get_down_limits_value(event)
-        self.target_set_value('down_limits', value)
+        self.target_set_value("down_limits", value)
         if event.ctrl:
             dv = self.difference_value
             if self.is_minimum_scope:  # 如果上下限是最小距离再向相反方向移动那么上限和下限之间的距离就会增加
-                self.target_set_value('up_limits', value + dv + 0.001)
+                self.target_set_value("up_limits", value + dv + 0.001)
             else:
-                self.target_set_value('up_limits', value + dv)
+                self.target_set_value("up_limits", value + dv)
         elif self.is_middle_mode:
-            if self.origin_mode == 'LIMITS_MIDDLE':
+            if self.origin_mode == "LIMITS_MIDDLE":
                 mu = self.middle_limits_value
                 v = mu - (value - mu)
-                self.target_set_value('up_limits', v)
-            elif self.origin_mode == 'MIDDLE':
-                self.target_set_value('up_limits', 1 - value)
+                self.target_set_value("up_limits", v)
+            elif self.origin_mode == "MIDDLE":
+                self.target_set_value("up_limits", 1 - value)
             else:
-                self.target_set_value('up_limits', self.modifier_up_limits)
+                self.target_set_value("up_limits", self.modifier_up_limits)
         else:
-            self.target_set_value('up_limits', self.modifier_up_limits)
+            self.target_set_value("up_limits", self.modifier_up_limits)
 
     def set_up_value(self, event):
         value = self.get_up_limits_value(event)
-        self.target_set_value('up_limits', value)
+        self.target_set_value("up_limits", value)
         if event.ctrl:
             dv = self.difference_value
             if self.is_minimum_scope:
-                self.target_set_value('down_limits', value - dv - 0.001)
+                self.target_set_value("down_limits", value - dv - 0.001)
             else:
-                self.target_set_value('down_limits', value - dv)
+                self.target_set_value("down_limits", value - dv)
         elif self.is_middle_mode:
-            if self.origin_mode == 'LIMITS_MIDDLE':
+            if self.origin_mode == "LIMITS_MIDDLE":
                 mu = self.middle_limits_value
                 value = mu - (value - mu)
-                self.target_set_value('down_limits', value)
-            elif self.origin_mode == 'MIDDLE':
-                self.target_set_value('down_limits', 1 - value)
+                self.target_set_value("down_limits", value)
+            elif self.origin_mode == "MIDDLE":
+                self.target_set_value("down_limits", 1 - value)
             else:
-                self.target_set_value('down_limits', self.modifier_down_limits)
+                self.target_set_value("down_limits", self.modifier_down_limits)
         else:
-            self.target_set_value('down_limits', self.modifier_down_limits)
+            self.target_set_value("down_limits", self.modifier_down_limits)
 
     def update_header_text(self, context):
         origin = self.obj_origin_property_group
-        mode = origin.bl_rna.properties['origin_mode'].enum_items[origin.origin_mode].name
+        mode = origin.bl_rna.properties["origin_mode"].enum_items[origin.origin_mode].name
 
         te = self.translate_text
         t = self.translate_header_text
-        text = te(self.modifier.deform_method.title()) + '       ' + te(mode) + '       '
+        text = te(self.modifier.deform_method.title()) + "       " + te(mode) + "       "
         if self.is_up_limits_mode:
             value = round(self.modifier_up_limits, 3)
-            text += t('Up limit', value)
+            text += t("Up limit", value)
         elif self.is_down_limits_mode:
             value = round(self.modifier_down_limits, 3)
-            text += t('Down limit', value)
+            text += t("Down limit", value)
         context.area.header_text_set(text)
 
     def restore_value(self):
-        self.target_set_value('up_limits', 1)
-        self.target_set_value('down_limits', 0)
+        self.target_set_value("up_limits", 1)
+        self.target_set_value("down_limits", 0)
 
 
 class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
-    bl_idname = 'UpDownLimitsGizmo'
-    bl_label = 'UpDownLimitsGizmo'
+    bl_idname = "UpDownLimitsGizmo"
+    bl_label = "UpDownLimitsGizmo"
     bl_target_properties = (
-        {'id': 'up_limits', 'type': 'FLOAT', 'array_length': 1},
-        {'id': 'down_limits', 'type': 'FLOAT', 'array_length': 1},
+        {"id": "up_limits", "type": "FLOAT", "array_length": 1},
+        {"id": "down_limits", "type": "FLOAT", "array_length": 1},
     )
-    bl_options = {'UNDO', 'GRAB_CURSOR'}
+    bl_options = {"UNDO", "GRAB_CURSOR"}
 
     __slots__ = (
-        'mod',
-        'up_limits',
-        'down_limits',
-        'draw_type',
-        'mouse_dpi',
-        'ctrl_mode',
-        'difference_value',
-        'middle_limits_value',
-        'init_mouse_region_y',
-        'init_mouse_region_x',
-        'custom_shape',
-        'int_value_up_limits',
-        'int_value_down_limits',
+        "mod",
+        "up_limits",
+        "down_limits",
+        "draw_type",
+        "mouse_dpi",
+        "ctrl_mode",
+        "difference_value",
+        "middle_limits_value",
+        "init_mouse_region_y",
+        "init_mouse_region_x",
+        "custom_shape",
+        "int_value_up_limits",
+        "int_value_down_limits",
     )
 
     def setup(self):
@@ -222,20 +222,20 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
 
         if self.is_up_limits_mode:
             self.int_value_up_limits = up_limits = self.modifier_up_limits
-            self.target_set_value('up_limits', up_limits)
+            self.target_set_value("up_limits", up_limits)
         elif self.is_down_limits_mode:
             self.int_value_down_limits = down_limits = self.modifier_down_limits
-            self.target_set_value('down_limits', down_limits)
-        return {'RUNNING_MODAL'}
+            self.target_set_value("down_limits", down_limits)
+        return {"RUNNING_MODAL"}
 
     def exit(self, context, cancel):
         context.area.header_text_set(None)
         if cancel:
             if self.is_up_limits_mode:
-                self.target_set_value('up_limits', self.int_value_up_limits)
+                self.target_set_value("up_limits", self.int_value_up_limits)
             elif self.is_down_limits_mode:
                 self.target_set_value(
-                    'down_limits', self.int_value_down_limits)
+                    "down_limits", self.int_value_down_limits)
 
     def modal(self, context, event, tweak):
         self.clear_point_cache()
@@ -260,8 +260,8 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
 
 
 class UpDownLimitsGizmoGroup(GizmoGroup, GizmoGroupUtils):
-    bl_idname = 'OBJECT_GGT_UpDownLimitsGizmoGroup'
-    bl_label = 'UpDownLimitsGizmoGroup'
+    bl_idname = "OBJECT_GGT_UpDownLimitsGizmoGroup"
+    bl_label = "UpDownLimitsGizmoGroup"
 
     @classmethod
     def poll(cls, context):
@@ -271,35 +271,35 @@ class UpDownLimitsGizmoGroup(GizmoGroup, GizmoGroupUtils):
     def setup(self, context):
         sd_name = UpDownLimitsGizmo.bl_idname
         gizmo_data = [
-            ('up_limits',
+            ("up_limits",
              sd_name,
-             {'ctrl_mode': 'up_limits',
-              'draw_type': 'Sphere_GizmoGroup_',
-              'mouse_dpi': 1000,
-              'color': (1.0, 0, 0),
-              'alpha': 0.5,
-              'color_highlight': (1.0, 1.0, 1.0),
-              'alpha_highlight': 0.3,
-              'use_draw_modal': True,
-              'scale_basis': 0.1,
-              'use_draw_value': True, }),
-            ('down_limits',
+             {"ctrl_mode": "up_limits",
+              "draw_type": "Sphere_GizmoGroup_",
+              "mouse_dpi": 1000,
+              "color": (1.0, 0, 0),
+              "alpha": 0.5,
+              "color_highlight": (1.0, 1.0, 1.0),
+              "alpha_highlight": 0.3,
+              "use_draw_modal": True,
+              "scale_basis": 0.1,
+              "use_draw_value": True, }),
+            ("down_limits",
              sd_name,
-             {'ctrl_mode': 'down_limits',
-              'draw_type': 'Sphere_GizmoGroup_',
-              'mouse_dpi': 1000,
-              'color': (0, 1.0, 0),
-              'alpha': 0.5,
-              'color_highlight': (1.0, 1.0, 1.0),
-              'alpha_highlight': 0.3,
-              'use_draw_modal': True,
-              'scale_basis': 0.1,
-              'use_draw_value': True, }),
+             {"ctrl_mode": "down_limits",
+              "draw_type": "Sphere_GizmoGroup_",
+              "mouse_dpi": 1000,
+              "color": (0, 1.0, 0),
+              "alpha": 0.5,
+              "color_highlight": (1.0, 1.0, 1.0),
+              "alpha_highlight": 0.3,
+              "use_draw_modal": True,
+              "scale_basis": 0.1,
+              "use_draw_value": True, }),
         ]
         self.generate_gizmo(gizmo_data)
 
     def refresh(self, context):
         pro = context.object.SimpleDeformGizmo_PropertyGroup
         for i in (self.down_limits, self.up_limits):
-            for j in ('down_limits', 'up_limits'):
+            for j in ("down_limits", "up_limits"):
                 i.target_set_prop(j, pro, j)
