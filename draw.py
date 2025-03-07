@@ -13,24 +13,24 @@ class DrawPublic(GizmoUtils):
 
     @classmethod
     def draw_3d_shader(cls, pos, indices, color=None, *,
-                       shader_name='UNIFORM_COLOR', draw_type='LINES'):
+                       shader_name="UNIFORM_COLOR", draw_type="LINES"):
         shader = gpu.shader.from_builtin(shader_name)
-        if draw_type == 'POINTS':
-            batch = batch_for_shader(shader, draw_type, {'pos': pos})
+        if draw_type == "POINTS":
+            batch = batch_for_shader(shader, draw_type, {"pos": pos})
         else:
             batch = batch_for_shader(
-                shader, draw_type, {'pos': pos}, indices=indices)
+                shader, draw_type, {"pos": pos}, indices=indices)
 
         shader.bind()
         if color:
-            shader.uniform_float('color', color)
+            shader.uniform_float("color", color)
         batch.draw(shader)
 
     @classmethod
     def draw_smooth_3d_shader(cls, pos, indices, color):
-        shader = gpu.shader.from_builtin('POLYLINE_SMOOTH_COLOR')
+        shader = gpu.shader.from_builtin("POLYLINE_SMOOTH_COLOR")
         batch = batch_for_shader(
-            shader, 'LINES',
+            shader, "LINES",
             {"pos": pos, "color": [color for _ in pos]},
             indices=indices,
         )
@@ -47,24 +47,24 @@ class DrawPublic(GizmoUtils):
 
 class DrawText(DrawPublic):
     font_info = {
-        'font_id': 0,
-        'handler': None,
+        "font_id": 0,
+        "handler": None,
     }
-    text_key = 'handler_text'
+    text_key = "handler_text"
 
     @classmethod
     def add_text_handler(cls):
         key = cls.text_key
         if key not in cls.G_HandleData:
             cls.G_HandleData[key] = bpy.types.SpaceView3D.draw_handler_add(
-                DrawText().draw_text_handler, (), 'WINDOW', 'POST_PIXEL')
+                DrawText().draw_text_handler, (), "WINDOW", "POST_PIXEL")
 
     @classmethod
     def del_text_handler(cls):
         key = cls.text_key
         if key in cls.G_HandleData:
             bpy.types.SpaceView3D.draw_handler_remove(
-                cls.G_HandleData[key], 'WINDOW')
+                cls.G_HandleData[key], "WINDOW")
             cls.G_HandleData.pop(key)
 
     @classmethod
@@ -78,15 +78,15 @@ class DrawText(DrawPublic):
             self.draw_scale_text()
 
     def draw_scale_text(self):
-        font_id = self.font_info['font_id']
+        font_id = self.font_info["font_id"]
         y = 80
         blf.size(font_id, 15)
         blf.color(font_id, 1, 1, 1, 1)
         text_list = [
-            'The scaling value of the object is not 1',
-            'which will cause the deformation of the simple deformation '
-            'modifier.',
-            'Please apply the scaling before deformation.',
+            "The scaling value of the object is not 1",
+            "which will cause the deformation of the simple deformation "
+            "modifier.",
+            "Please apply the scaling before deformation.",
         ]
         for text in text_list[::-1]:
             blf.position(font_id, 200, y, 0)
@@ -94,10 +94,10 @@ class DrawText(DrawPublic):
             y += 20
 
     @classmethod
-    def draw_text(cls, x, y, text='Hello Word', font_id=0, size=10, *,
-                  color=(0.5, 0.5, 0.5, 1), dpi=72, column=0):
+    def draw_text(cls, x, y, text="Hello Word", font_id=0, size=10, *,
+                  color=(0.5, 0.5, 0.5, 1), column=0):
         blf.position(font_id, x, y - (size * (column + 1)), 0)
-        blf.size(font_id, size, dpi)
+        blf.size(font_id, size)
         blf.draw(font_id, text)
         blf.color(font_id, *color)
 
@@ -105,10 +105,10 @@ class DrawText(DrawPublic):
 class DrawHandler(DrawText):
     @classmethod
     def add_handler(cls):
-        if 'handler' not in cls.G_HandleData:
+        if "handler" not in cls.G_HandleData:
             cls.G_HandleData[
-                'handler'] = bpy.types.SpaceView3D.draw_handler_add(
-                Draw3D().draw_post_view, (), 'WINDOW', 'POST_VIEW')
+                "handler"] = bpy.types.SpaceView3D.draw_handler_add(
+                Draw3D().draw_post_view, (), "WINDOW", "POST_VIEW")
 
         cls.add_text_handler()
 
@@ -121,9 +121,9 @@ class DrawHandler(DrawText):
         if data.objects.get(cls.G_NAME):
             data.objects.remove(data.objects.get(cls.G_NAME))
         cls.del_text_handler()
-        if 'handler' in cls.G_HandleData:
+        if "handler" in cls.G_HandleData:
             bpy.types.SpaceView3D.draw_handler_remove(
-                cls.G_HandleData['handler'], 'WINDOW')
+                cls.G_HandleData["handler"], "WINDOW")
             cls.G_HandleData.clear()
 
 
@@ -131,13 +131,13 @@ class Draw3D(DrawHandler):
 
     def _shader_set_prop_(self):
         gpu.state.line_width_set(1)
-        gpu.state.blend_set('ALPHA')
-        gpu.state.depth_test_set('ALWAYS')
+        gpu.state.blend_set("ALPHA")
+        gpu.state.depth_test_set("ALWAYS")
 
     def _set_front_(self):
         gpu.state.line_width_set(1)
-        gpu.state.blend_set('ALPHA')
-        gpu.state.depth_test_set('LESS_EQUAL' if not self.pref.show_wireframe_in_front else 'ALWAYS')
+        gpu.state.blend_set("ALPHA")
+        gpu.state.depth_test_set("LESS_EQUAL" if not self.pref.show_wireframe_in_front else "ALWAYS")
 
     def draw_post_view(self):
         if self.draw_poll:
@@ -185,9 +185,9 @@ class Draw3D(DrawHandler):
 
         # draw pos
         self.draw_3d_shader([down_point], (), (0, 1, 0, 0.5),
-                            shader_name='UNIFORM_COLOR', draw_type='POINTS')
+                            shader_name="UNIFORM_COLOR", draw_type="POINTS")
         self.draw_3d_shader([up_point], (), (1, 0, 0, 0.5),
-                            shader_name='UNIFORM_COLOR', draw_type='POINTS')
+                            shader_name="UNIFORM_COLOR", draw_type="POINTS")
         self._shader_set_prop_()
 
     def draw_deform_mesh(self):
@@ -197,7 +197,7 @@ class Draw3D(DrawHandler):
         active = self.modifier
         # draw deform mesh
         if (
-                'simple_deform_bound_data' in deform_data and
+                "simple_deform_bound_data" in deform_data and
                 self.pref.update_deform_wireframe
         ):
             self._set_front_()
@@ -209,7 +209,7 @@ class Draw3D(DrawHandler):
             else:
                 active_con = self.get_constraints_parameter_from_object(self.obj)
 
-            pos, indices, mat, mod_data, limits, con = deform_data['simple_deform_bound_data']
+            pos, indices, mat, mod_data, limits, con = deform_data["simple_deform_bound_data"]
 
             is_mod = modifiers == mod_data
             is_limits = limits == active.limits[:]

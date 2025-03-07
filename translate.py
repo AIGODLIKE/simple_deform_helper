@@ -82,11 +82,12 @@ translations_dict = {
     "Simple Deform Property": "简易形变属性",
     "Insert Keyframe": "插入关键帧",
     "Remove Keyframe": "删除关键帧",
+    "Show Simple Deform Gizmo": "显示简易形变Gizmo"
 }
 
 
 class TranslationHelper:
-    def __init__(self, name: str, data: dict, lang='zh_CN'):
+    def __init__(self, name: str, data: dict, lang="zh_CN"):
         self.name = name
         self.translations_dict = dict()
 
@@ -118,7 +119,7 @@ def get_language(language):
     return language
 
 
-SimpleDeform_CN = TranslationHelper('SimpleDeform_CN', translations_dict, lang=get_language('zh_HANS'))
+SimpleDeform_CN = TranslationHelper("SimpleDeform_CN", translations_dict, lang=get_language("zh_HANS"))
 
 
 def register():

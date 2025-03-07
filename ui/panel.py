@@ -6,17 +6,17 @@ from ..utils import PublicPoll, get_pref
 
 
 class Info:
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
     bl_category = "Tool"
 
 
 class SimpleDeformPanel(Panel, Info):
-    bl_idname = 'SIMPLE_DEFORM_PT_PANEL'
-    bl_label = 'Simple Deform Helper'
+    bl_idname = "SIMPLE_DEFORM_PT_PANEL"
+    bl_label = "Simple Deform Helper"
 
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
     bl_category = "Tool"
     bl_options = set()
 
@@ -27,10 +27,14 @@ class SimpleDeformPanel(Panel, Info):
     def draw(self, context):
         ...
 
+    def draw_header(self, context):
+        layout = self.layout
+        layout.prop(get_pref(), "show_gizmo", text="")
+
 
 class SimpleDeformPropertyPanel(Panel, Info):
-    bl_idname = 'SIMPLE_DEFORM_PROPERTY_PT_PANEL'
-    bl_label = 'Property'
+    bl_idname = "SIMPLE_DEFORM_PROPERTY_PT_PANEL"
+    bl_label = "Property"
 
     bl_parent_id = SimpleDeformPanel.bl_idname
 
@@ -50,29 +54,29 @@ class SimpleDeformPropertyPanel(Panel, Info):
         ctrl_obj = mod.origin.SimpleDeformGizmo_PropertyGroup if mod.origin else prop
 
         column.prop(ctrl_obj,
-                    'origin_mode',
-                    text='')
+                    "origin_mode",
+                    text="")
         column.prop(pref,
-                    'update_deform_wireframe',
-                    icon='MOD_WIREFRAME', )
+                    "update_deform_wireframe",
+                    icon="MOD_WIREFRAME", )
         column.prop(pref,
-                    'show_set_axis_button',
-                    icon='EMPTY_AXIS', )
+                    "show_set_axis_button",
+                    icon="EMPTY_AXIS", )
         column.prop(pref,
-                    'show_wireframe_in_front',
-                    icon='AXIS_FRONT', )
+                    "show_wireframe_in_front",
+                    icon="AXIS_FRONT", )
         if pref.modifier_deform_method_is_bend:
             column.prop(pref,
-                        'display_bend_axis_switch_gizmo',
+                        "display_bend_axis_switch_gizmo",
                         toggle=1)
         column.prop(pref,
-                    'modifiers_limits_tolerance',
-                    text='')
+                    "modifiers_limits_tolerance",
+                    text="")
 
 
 class SimpleDeformAnimatedPanel(Panel, Info):
-    bl_idname = 'SIMPLE_DEFORM_ANIMATED_PT_PANEL'
-    bl_label = 'Animated'
+    bl_idname = "SIMPLE_DEFORM_ANIMATED_PT_PANEL"
+    bl_label = "Animated"
 
     bl_parent_id = SimpleDeformPanel.bl_idname
 
@@ -82,6 +86,11 @@ class SimpleDeformAnimatedPanel(Panel, Info):
         row = layout.row(align=True)
         row.operator(KeyFrame.bl_idname)
         row.operator(RemoveFrame.bl_idname)
+
+
+def gizmo_panel(self, context):
+    layout = self.layout
+    layout.prop(get_pref(), "show_gizmo", text="Show Simple Deform Gizmo")
 
 
 classes = [
@@ -94,7 +103,9 @@ reg_class, un_reg_class = bpy.utils.register_classes_factory(classes)
 
 def register():
     reg_class()
+    bpy.types.VIEW3D_PT_gizmo_display.prepend(gizmo_panel)
 
 
 def unregister():
     un_reg_class()
+    bpy.types.VIEW3D_PT_gizmo_display.remove(gizmo_panel)

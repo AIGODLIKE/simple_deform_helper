@@ -5,23 +5,23 @@ from ..utils import GizmoUtils
 
 
 class DeformAxisOperator(Operator, GizmoUtils):
-    bl_idname = 'simple_deform_gizmo.deform_axis'
-    bl_label = 'deform_axis'
-    bl_description = 'deform_axis operator'
-    bl_options = {'REGISTER'}
+    bl_idname = "simple_deform_gizmo.deform_axis"
+    bl_label = "deform_axis"
+    bl_description = "deform_axis operator"
+    bl_options = {"REGISTER"}
 
-    Deform_Axis: StringProperty(default='X', options={'SKIP_SAVE'})
-    z_rotate: StringProperty(default='X', options={'SKIP_SAVE'})
+    Deform_Axis: StringProperty(default="X", options={"SKIP_SAVE"})
+    z_rotate: StringProperty(default="X", options={"SKIP_SAVE"})
 
-    X_Value: FloatProperty(default=-0, options={'SKIP_SAVE'})
-    Y_Value: FloatProperty(default=-0, options={'SKIP_SAVE'})
-    Z_Value: FloatProperty(default=-0, options={'SKIP_SAVE'})
+    X_Value: FloatProperty(default=-0, options={"SKIP_SAVE"})
+    Y_Value: FloatProperty(default=-0, options={"SKIP_SAVE"})
+    Z_Value: FloatProperty(default=-0, options={"SKIP_SAVE"})
 
-    Is_Positive: BoolProperty(default=True, options={'SKIP_SAVE'})
+    Is_Positive: BoolProperty(default=True, options={"SKIP_SAVE"})
 
     def invoke(self, context, event):
         context.window_manager.modal_handler_add(self)
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
         self.clear_point_cache()
@@ -31,12 +31,12 @@ class DeformAxisOperator(Operator, GizmoUtils):
         empty = self.new_origin_empty_object()
         is_positive = self.number_is_positive(mod.angle)
 
-        for limit, value in (('max_x', self.X_Value),
-                             ('min_x', self.X_Value),
-                             ('max_y', self.Y_Value),
-                             ('min_y', self.Y_Value),
-                             ('max_z', self.Z_Value),
-                             ('min_z', self.Z_Value),
+        for limit, value in (("max_x", self.X_Value),
+                             ("min_x", self.X_Value),
+                             ("max_y", self.Y_Value),
+                             ("min_y", self.Y_Value),
+                             ("max_z", self.Z_Value),
+                             ("min_z", self.Z_Value),
                              ):
             setattr(empty.constraints[self.G_NAME_CON_LIMIT], limit, value)
 
@@ -51,4 +51,4 @@ class DeformAxisOperator(Operator, GizmoUtils):
         origin_object.simple_deform_helper_rotate_xyz = (self.X_Value, self.Y_Value, self.Z_Value)
 
 
-        return {'FINISHED'}
+        return {"FINISHED"}
