@@ -6,6 +6,7 @@ This is an addon for Blender that enhance simple deform modifier. A visualize si
 
 ![image](https://github.com/user-attachments/assets/086aca13-154d-4229-a062-abc0e51264f2)
 
+![20250308-202839](https://github.com/user-attachments/assets/bfe3835f-ae70-419a-a9c6-4161cc3586be)
 
 ## Usage
 
