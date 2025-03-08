@@ -7,5 +7,5 @@ maintainer = "AIGODLIKE Community(小萌新)"
 name = "Simple Deform Helper"
 tagline = "Simple Deform visualization adjustment tool"
 type = "add-on"
-version = "0.2.4"
+version = "0.2.5"
 tags = ["3D View", "Object", "Mesh"]
