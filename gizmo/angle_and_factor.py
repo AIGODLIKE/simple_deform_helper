@@ -1,7 +1,7 @@
 import math
 
 from bpy.types import Gizmo, GizmoGroup
-
+from mathutils import Matrix
 from ..update import ChangeActiveModifierParameter
 from ..utils import GizmoUtils, GizmoGroupUtils
 
@@ -9,7 +9,6 @@ from ..utils import GizmoUtils, GizmoGroupUtils
 class AngleUpdate(GizmoUtils):
     int_value_degrees: float
     tmp_value_angle: float
-
 
     def update_prop_value(self, event, tweak):
         def v(va):
@@ -46,7 +45,7 @@ class AngleUpdate(GizmoUtils):
     def update_gizmo_matrix(self, context):
         matrix = context.object.matrix_world
         point = self.modifier_bound_co[1]
-        self.matrix_basis = self.obj_matrix_world
+        self.matrix_basis = Matrix()
         self.matrix_basis.translation = matrix @ point
 
     def update_header_text(self, context):
