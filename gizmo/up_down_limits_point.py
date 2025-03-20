@@ -246,12 +246,10 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
         self.difference_value = self.modifier_up_limits - self.modifier_down_limits
         self.middle_limits_value = (self.modifier_up_limits + self.modifier_down_limits) / 2
 
-        try:
+        if self.modifier_origin_is_available:
             self.set_prop_value(event)
             self.clear_point_cache()
             self.update_object_origin_matrix()
-        except Exception as e:
-            print(e.args)
         self.update_header_text(context)
         return_handle = self.event_handle(event)
         ChangeActiveModifierParameter.update_modifier_parameter()
