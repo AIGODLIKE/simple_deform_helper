@@ -12,7 +12,7 @@ from . import (
 bl_info = {
     "name": "Simple Deform Helper",
     "author": "AIGODLIKE Community:小萌新",
-    "version": (0, 2, 5),
+    "version": (0, 2, 6),
     "blender": (4, 0, 0),
     "location": "3D View -> Select an object and the active modifier is "
                 "simple deformation",
