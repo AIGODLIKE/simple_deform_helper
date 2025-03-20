@@ -1,11 +1,12 @@
 import ast
-import bpy
 import math
-import numpy as np
 import re
 import uuid
-from bpy.types import AddonPreferences
 from functools import cache
+
+import bpy
+import numpy as np
+from bpy.types import AddonPreferences
 from mathutils import Vector, Matrix, Euler
 
 
@@ -706,7 +707,7 @@ class GizmoUpdate(PublicProperty):
         return origin_object
 
     def update_object_origin_matrix(self):
-        if self.modifier_is_have_origin:
+        if self.modifier_is_have_origin and self.modifier_origin_is_available:
             origin_mode = self.origin_mode
             origin_object = self.modifier.origin
 
