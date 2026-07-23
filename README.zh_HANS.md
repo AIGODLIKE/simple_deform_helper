@@ -1,10 +1,10 @@
 # 世界领先的简易变形器 V2
 
-[English](README.en.md) | [简体中文](README.zh_HANS.md)
+[English](README.en.md)
 
 **Simple Deform Helper V2** 是面向 Blender 的非破坏性笼式形变工具。它把弯曲、扭转、锥化和拉伸放进同一个可预览、可排序、可动画的形变工作流，并保留 Blender 原生简易形变修改器的直接控制能力。
 
-![Simple Deform Helper V2 功能对比](docs/simple_deform_helper_v2_comparison.svg)
+![简易变形器 V2 功能对比](docs/simple_deform_helper_v2_comparison.svg)
 
 ## 核心能力
 

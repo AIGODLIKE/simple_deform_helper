@@ -2,10 +2,22 @@ import bpy
 from bpy.props import (FloatProperty,
                        FloatVectorProperty,
                        EnumProperty,
-                       BoolProperty)
+                       BoolProperty,
+                       IntProperty)
 from bpy.types import AddonPreferences
 
 from .utils import GizmoUtils, get_pref
+
+
+def update_wireframe_preview(preferences, context):
+    helper = GizmoUtils()
+    if preferences.update_deform_wireframe:
+        helper.update_multiple_modifiers_data()
+        helper.update_deform_wireframe(force=True)
+    else:
+        helper.clear_deform_data()
+    if context and context.area:
+        context.area.tag_redraw()
 
 
 class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
@@ -48,7 +60,8 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
 
     update_deform_wireframe: BoolProperty(
         name="Show Deform Wireframe",
-        default=False)
+        default=False,
+        update=update_wireframe_preview)
 
     show_wireframe_in_front: BoolProperty(name="In Front", default=False)
 
@@ -66,9 +79,34 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
 
     show_gizmo: BoolProperty(name="Show Gizmo", default=True)
 
+    show_other_stage_bounds: BoolProperty(
+        name="Show Other Simple Deform Stages",
+        description="Draw faint input bounds for other Simple Deform modifiers",
+        default=True)
+
+    show_drag_hud: BoolProperty(
+        name="Show Drag Shortcuts in Header",
+        default=True)
+
+    warn_low_topology: BoolProperty(
+        name="Warn About Low Topology",
+        description="Warn when the active deformation axis has too few geometry points",
+        default=True)
+
+    wireframe_preview_fps: IntProperty(
+        name="Wireframe Preview FPS",
+        description="Maximum refresh rate for the optional deformed wireframe preview",
+        default=30,
+        min=5,
+        max=60)
+
     def draw(self, context):
         col = self.layout.column()
         col.prop(self, "show_gizmo")
+        col.prop(self, "show_other_stage_bounds")
+        col.prop(self, "show_drag_hud")
+        col.prop(self, "warn_low_topology")
+        col.prop(self, "wireframe_preview_fps")
 
         box = col.box()
         for text in ("You can press the following shortcut keys when dragging values",
@@ -117,5 +155,5 @@ def register():
 
 
 def unregister():
-    bpy.utils.unregister_class(SimpleDeformGizmoAddonPreferences)
     bpy.types.VIEW3D_MT_editor_menus.remove(SimpleDeformGizmoAddonPreferences.draw_header_tool_settings)
+    bpy.utils.unregister_class(SimpleDeformGizmoAddonPreferences)

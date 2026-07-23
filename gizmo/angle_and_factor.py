@@ -8,40 +8,30 @@ from ..utils import GizmoUtils, GizmoGroupUtils
 
 
 class AngleUpdate(GizmoUtils):
-    int_value_degrees: float
-    tmp_value_angle: float
+    initial_value: float
 
     def update_prop_value(self, event, tweak):
-        def v(va):
-            self.target_set_value("angle", math.radians(va))
+        raw_delta = self.get_delta(event)
+        precise = event.shift or "PRECISE" in tweak
+        snap = event.ctrl or "SNAP" in tweak
 
-        not_c_l = not event.alt and not event.ctrl
-        is_only_shift = event.shift and not_c_l
+        if self.modifier_is_use_angle_value:
+            delta = math.radians(raw_delta)
+            if precise:
+                delta /= 10.0
+            value = self.initial_value - delta
+            if snap:
+                step = math.radians(5.0)
+                value = round(value / step) * step
+        else:
+            delta = raw_delta * 0.01
+            if precise:
+                delta /= 10.0
+            value = self.initial_value - delta
+            if snap:
+                value = round(value * 10.0) / 10.0
 
-        change_angle = self.get_delta(event)
-        if is_only_shift:
-            change_angle /= 50
-        new_value = self.tmp_value_angle - change_angle
-        old_value = self.target_get_value("angle")
-        snap_value = self.get_snap(new_value, tweak)
-
-        is_shift = event.type == "LEFT_SHIFT"
-        is_release = event.value == "RELEASE"
-        if is_only_shift:
-            if event.value == "PRESS":
-                self.init_mouse_region_x = event.mouse_region_x
-                self.tmp_value_angle = int(math.degrees(old_value))
-                v(self.tmp_value_angle)
-                return
-
-            value = (self.tmp_value_angle - change_angle) // 0.01 * 0.01
-            v(value)
-            return
-
-        elif not_c_l and not event.shift and is_shift and is_release:
-            self.init_mouse_region_x = event.mouse_region_x
-            return
-        v(snap_value)
+        self.target_set_value("value", value)
 
     def update_gizmo_matrix(self, context):
         matrix = context.object.matrix_world
@@ -60,6 +50,8 @@ class AngleUpdate(GizmoUtils):
         else:
             value = round(self.modifier.factor, 3)
             text += self.translate_header_text("Coefficient", value)
+        if self.pref.show_drag_hud:
+            text += "    |    X/Y/Z Axis · Wheel Origin · W Wire · A Bend Axis · Shift Precise"
         context.area.header_text_set(text)
 
 
@@ -67,9 +59,7 @@ class AngleGizmo(Gizmo, AngleUpdate):
     bl_idname = "ViewSimpleAngleGizmo"
 
     bl_target_properties = (
-        {"id": "up_limits", "type": "FLOAT", "array_length": 1},
-        {"id": "down_limits", "type": "FLOAT", "array_length": 1},
-        {"id": "angle", "type": "FLOAT", "array_length": 1}
+        {"id": "value", "type": "FLOAT", "array_length": 1},
     )
 
     __slots__ = (
@@ -77,8 +67,7 @@ class AngleGizmo(Gizmo, AngleUpdate):
         "mouse_dpi",
         "empty_object",
         "custom_shape",
-        "tmp_value_angle",
-        "int_value_degrees",
+        "initial_value",
         "init_mouse_region_y",
         "init_mouse_region_x",
     )
@@ -88,9 +77,7 @@ class AngleGizmo(Gizmo, AngleUpdate):
 
     def invoke(self, context, event):
         self.init_invoke(context, event)
-        self.int_value_degrees = self.target_get_value("angle")
-        angle = math.degrees(self.int_value_degrees)
-        self.tmp_value_angle = angle
+        self.initial_value = self.target_get_value("value")
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event, tweak):
@@ -107,7 +94,9 @@ class AngleGizmo(Gizmo, AngleUpdate):
     def exit(self, context, cancel):
         context.area.header_text_set(None)
         if cancel:
-            self.target_set_value("angle", self.int_value_degrees)
+            self.target_set_value("value", self.initial_value)
+        self.update_multiple_modifiers_data()
+        self.update_deform_wireframe(force=True)
 
 
 class AngleGizmoGroup(GizmoGroup, GizmoGroupUtils):
@@ -141,6 +130,9 @@ class AngleGizmoGroup(GizmoGroup, GizmoGroupUtils):
         self.generate_gizmo(add_data)
 
     def refresh(self, context):
-        self.angle.target_set_prop("angle",
-                                   context.object.modifiers.active,
-                                   "angle")
+        modifier = context.object.modifiers.active
+        property_name = (
+            "angle" if modifier.deform_method in {"BEND", "TWIST"}
+            else "factor"
+        )
+        self.angle.target_set_prop("value", modifier, property_name)

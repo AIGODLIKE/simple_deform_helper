@@ -2,6 +2,8 @@ import bpy
 from bpy.types import Panel, VIEW3D_HT_tool_header
 
 from ..utils import GizmoUtils, get_pref
+from ..stages import StageCache
+from ..ops.stage import SimpleDeformStageCycle
 
 
 class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
@@ -33,8 +35,26 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
 
             ctrl_obj = mod.origin.SimpleDeformGizmo_PropertyGroup if mod.origin else prop
 
+            stage_index, stage_count = StageCache.position_for(obj, mod)
+            if stage_count > 1:
+                stage_row = layout.row(align=True)
+                previous = stage_row.operator(
+                    SimpleDeformStageCycle.bl_idname,
+                    text="", icon="TRIA_LEFT")
+                previous.direction = "PREVIOUS"
+                stage_row.label(text=f"Deform {stage_index}/{stage_count}")
+                following = stage_row.operator(
+                    SimpleDeformStageCycle.bl_idname,
+                    text="", icon="TRIA_RIGHT")
+                following.direction = "NEXT"
+
             row = layout.row(align=True)
-            row.prop(ctrl_obj,
+            origin_control = row.row(align=True)
+            origin_control.enabled = (
+                not mod.origin or
+                GizmoUtils.is_managed_origin(mod.origin, obj)
+            )
+            origin_control.prop(ctrl_obj,
                      "origin_mode",
                      text="")
             row.prop(pref,
@@ -69,5 +89,5 @@ def register():
 
 
 def unregister():
-    bpy.utils.unregister_class(SimpleDeformHelperToolHeader)
     VIEW3D_HT_tool_header.remove(SimpleDeformHelperToolHeader.draw_settings)
+    bpy.utils.unregister_class(SimpleDeformHelperToolHeader)

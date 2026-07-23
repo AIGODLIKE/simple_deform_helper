@@ -1,7 +1,7 @@
 from bpy.types import GizmoGroup
 from mathutils import Vector
 
-from ..utils import GizmoGroupUtils,get_pref
+from ..utils import GizmoGroupUtils, get_pref
 
 
 class SetDeformGizmoGroup(GizmoGroup, GizmoGroupUtils):
@@ -36,8 +36,7 @@ class SetDeformGizmoGroup(GizmoGroup, GizmoGroupUtils):
     def draw_prepare(self, context):
         bound = self.modifier_bound_co
         if bound:
-            obj = self.get_depsgraph(self.obj)
-            dimensions = obj.dimensions
+            dimensions = bound[1] - bound[0]
 
             def mat(f):
                 b = bound[0]

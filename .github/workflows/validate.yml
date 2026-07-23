@@ -1,0 +1,126 @@
+name: Validate Blender Extension
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  supported-versions:
+    name: Blender ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: 4.2 LTS minimum
+            version: 4.2.22
+            url: https://download.blender.org/release/Blender4.2/blender-4.2.22-linux-x64.tar.xz
+          - label: 5.2 current
+            version: 5.2.0
+            url: https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Blender
+        id: blender-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/blender-${{ matrix.version }}
+          key: blender-linux-x64-${{ matrix.version }}
+
+      - name: Download Blender
+        if: steps.blender-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/blender-${{ matrix.version }}"
+          curl --fail --location --retry 3 "${{ matrix.url }}" --output "${RUNNER_TEMP}/blender.tar.xz"
+          tar --extract --xz --file "${RUNNER_TEMP}/blender.tar.xz" --strip-components=1 --directory "${RUNNER_TEMP}/blender-${{ matrix.version }}"
+
+      - name: Compile Python
+        run: python -m compileall -q .
+
+      - name: Validate source manifest
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --command extension validate .
+
+      - name: Run Blender runtime regressions
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/runtime_regression.py
+
+      - name: Run C4D-style Cage Bend regressions
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/c4d_bend_regression.py
+
+      - name: Run window-context undo regression
+        shell: bash
+        run: |
+          result="${RUNNER_TEMP}/sdh-gui-undo-${{ matrix.version }}.txt"
+          xvfb-run -a "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender" --factory-startup --python tests/gui_undo_regression.py -- "$result"
+          test "$(cat "$result")" = "PASS"
+
+      - name: Build release archive
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --command extension build --source-dir .
+          --output-filepath "${RUNNER_TEMP}/simple_deform_helper-${{ matrix.version }}.zip"
+
+      - name: Validate release archive
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --command extension validate
+          "${RUNNER_TEMP}/simple_deform_helper-${{ matrix.version }}.zip"
+
+      - name: Install and enable release archive
+        shell: bash
+        env:
+          BLENDER_USER_CONFIG: ${{ runner.temp }}/sdh-config-${{ matrix.version }}
+          BLENDER_USER_EXTENSIONS: ${{ runner.temp }}/sdh-extensions-${{ matrix.version }}
+          BLENDER_USER_SCRIPTS: ${{ runner.temp }}/sdh-scripts-${{ matrix.version }}
+          BLENDER_USER_DATAFILES: ${{ runner.temp }}/sdh-datafiles-${{ matrix.version }}
+        run: |
+          blender="${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          repository="${RUNNER_TEMP}/sdh-repository-${{ matrix.version }}"
+          mkdir -p "$repository" "$BLENDER_USER_CONFIG" "$BLENDER_USER_EXTENSIONS" "$BLENDER_USER_SCRIPTS" "$BLENDER_USER_DATAFILES"
+          "$blender" --factory-startup --command extension repo-add sdh_test --name "SDH Test" --directory "$repository" --clear-all
+          "$blender" --command extension install-file -r sdh_test -e "${RUNNER_TEMP}/simple_deform_helper-${{ matrix.version }}.zip"
+          "$blender" --background --python-exit-code 1 --python tests/installed_lifecycle.py
+
+  next-blender:
+    name: Blender next (allowed to fail)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve official next build
+        id: next
+        shell: bash
+        run: echo "url=$(python tests/resolve_blender_build.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Download next Blender
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/blender-next"
+          curl --fail --location --retry 3 "${{ steps.next.outputs.url }}" --output "${RUNNER_TEMP}/blender-next.tar.xz"
+          tar --extract --xz --file "${RUNNER_TEMP}/blender-next.tar.xz" --strip-components=1 --directory "${RUNNER_TEMP}/blender-next"
+
+      - name: Validate, test, and build
+        shell: bash
+        run: |
+          blender="${RUNNER_TEMP}/blender-next/blender"
+          "$blender" --command extension validate .
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/runtime_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/c4d_bend_regression.py
+          "$blender" --command extension build --source-dir . --output-filepath "${RUNNER_TEMP}/simple_deform_helper-next.zip"
+          "$blender" --command extension validate "${RUNNER_TEMP}/simple_deform_helper-next.zip"

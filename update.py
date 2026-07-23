@@ -3,6 +3,7 @@ from functools import cache
 import bpy
 
 from .utils import GizmoUpdate
+from .stages import StageCache, render_job_running
 
 gizmo = GizmoUpdate()
 
@@ -26,13 +27,16 @@ class update_public:
 
     @classmethod
     def _update_func_call_timer(cls):
-        if cls.timers_update_poll():
+        if render_job_running():
+            return 0.5
+        active = cls.timers_update_poll()
+        if active:
             for c, func_list in cls._events_func_list.items():
                 if func_list and c.update_poll():
                     for func in func_list:
                         func()
         cls.clear_cache_events()
-        return cls.run_time
+        return cls.run_time if active else 0.5
 
     @classmethod
     def clear_cache_events(cls):
@@ -52,28 +56,27 @@ class update_public:
 
     @classmethod
     def remove(cls, item):
-        if item in cls._events_func_list[cls]:
+        if cls in cls._events_func_list and item in cls._events_func_list[cls]:
             cls._events_func_list[cls].remove(item)
 
     # ---------------   reg and unreg
     @classmethod
     def register(cls):
         from bpy.app import timers
-        func = cls._update_func_call_timer
+        func = _timer_callback
         if not timers.is_registered(func):
             timers.register(func, persistent=True)
-        else:
-            print("cls timers is registered", cls)
 
     @classmethod
     def unregister(cls):
         from bpy.app import timers
-        func = cls._update_func_call_timer
+        func = _timer_callback
         if timers.is_registered(func):
             timers.unregister(func)
-        else:
-            print("cls timers is not registered", cls)
         cls._events_func_list.clear()
+        cls.tmp_save_data.clear()
+        StageCache.clear()
+        StageCache.cleanup_runtime_objects()
 
 
 class simple_update(update_public, GizmoUpdate):
@@ -103,7 +106,7 @@ class ChangeActiveObject(simple_update):
     def is_change_active_object(cls, change_data=True):
         import bpy
         obj = bpy.context.object
-        name = obj.name
+        name = (int(obj.as_pointer()), obj.name)
         key = "active_object"
         if key not in cls.tmp_save_data or cls.tmp_save_data[key] != name:
             if change_data:
@@ -139,9 +142,20 @@ class ChangeActiveSimpleDeformModifier(simple_update):
 
     @classmethod
     def get_modifiers_data(cls, obj):
-        return {"obj": obj.name,
-                "active_modifier": getattr(obj.modifiers.active, "name", None),
-                "modifiers": list(i.name for i in obj.modifiers)}
+        active = obj.modifiers.active
+        return {
+            "obj": (int(obj.as_pointer()), obj.name),
+            "active_modifier": (
+                int(active.as_pointer()), active.name
+            ) if active else None,
+            "modifiers": [
+                (
+                    int(modifier.as_pointer()), modifier.name,
+                    modifier.type, modifier.show_viewport,
+                )
+                for modifier in obj.modifiers
+            ],
+        }
 
 
 class ChangeActiveModifierParameter(simple_update):
@@ -163,7 +177,7 @@ class ChangeActiveModifierParameter(simple_update):
     @classmethod
     def change_modifier_parameter(cls) -> bool:
         mod_data = cls.get_modifiers_parameter(gizmo.modifier)
-        return cls.key in cls.tmp_save_data and cls.tmp_save_data[cls.key] == mod_data
+        return cls.key not in cls.tmp_save_data or cls.tmp_save_data[cls.key] != mod_data
 
     @classmethod
     def is_change_active_simple_parameter(cls):
@@ -180,11 +194,18 @@ class ChangeActiveModifierParameter(simple_update):
         return False
 
 
+def _timer_callback():
+    return simple_update._update_func_call_timer()
+
+
 def register():
     simple_update.register()
 
     def p():
-        gizmo.update_multiple_modifiers_data()
+        if gizmo.update_multiple_modifiers_data():
+            # Numeric fields, keyframes, drivers, and scripts do not pass
+            # through a gizmo modal callback. Refresh their preview here.
+            gizmo.update_deform_wireframe(force=True)
 
     ChangeActiveObject.append(p)
     ChangeActiveModifierParameter.append(p)

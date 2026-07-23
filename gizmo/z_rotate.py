@@ -45,6 +45,8 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
         context.area.header_text_set(None)
         if cancel:
             self.target_set_value("angle_value", self.start_angle)
+        self.update_multiple_modifiers_data()
+        self.update_deform_wireframe(force=True)
 
     def update_gizmo_matrix(self, context):
         origin = self.origin_object
@@ -72,6 +74,8 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
             return False
         origin_object = active_modify.origin
         if not origin_object:
+            return False
+        if not cls.is_managed_origin(origin_object, obj):
             return False
         if PublicData.G_NAME_CON_LIMIT not in origin_object.constraints:
             return False
@@ -106,4 +110,3 @@ class ZRotateGizmoGroup(GizmoGroup, GizmoGroupUtils):
         self.angle_value.target_set_prop("angle_value",
                                          self.angle_value.origin_object,
                                          "simple_deform_helper_rotate_angle")
-    

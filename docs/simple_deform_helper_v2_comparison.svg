@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">世界领先的简易变形器 V2 功能对比</title>
+  <desc id="desc">A neutral comparison of deformation workflow capabilities.</desc>
+  <rect width="1600" height="900" fill="#171b21"/>
+  <rect x="64" y="56" width="1472" height="788" rx="18" fill="#20262e" stroke="#3a4653" stroke-width="2"/>
+  <text x="104" y="126" fill="#f4f7fa" font-family="Segoe UI, Noto Sans CJK SC, sans-serif" font-size="42" font-weight="700">世界领先的简易变形器 V2</text>
+  <text x="104" y="166" fill="#8fd6e7" font-family="Segoe UI, sans-serif" font-size="22">Simple Deform Helper V2 · non-destructive cage workflow</text>
+
+  <rect x="104" y="210" width="1392" height="66" rx="8" fill="#2a333d"/>
+  <text x="136" y="252" fill="#aebbc8" font-family="Segoe UI, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="600">功能维度</text>
+  <text x="646" y="252" fill="#8fd6e7" font-family="Segoe UI, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">简易变形器 V2</text>
+  <text x="1018" y="252" fill="#e7b37e" font-family="Segoe UI, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="600">传统分段式流程</text>
+  <text x="1302" y="252" fill="#aebbc8" font-family="Segoe UI, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="600">常见 DCC 变形器</text>
+
+  <g font-family="Segoe UI, Noto Sans CJK SC, sans-serif" font-size="20">
+    <g transform="translate(0 292)"><rect x="104" y="0" width="1392" height="54" fill="#252d36"/><text x="136" y="35" fill="#f4f7fa">单笼多形变</text><text x="690" y="35" fill="#72d5ac">支持</text><text x="1062" y="35" fill="#d8a875">通常拆分</text><text x="1330" y="35" fill="#aebbc8">视实现而定</text></g>
+    <g transform="translate(0 346)"><rect x="104" y="0" width="1392" height="54" fill="#20262e"/><text x="136" y="35" fill="#f4f7fa">变形顺序控制</text><text x="690" y="35" fill="#72d5ac">列表拖拽</text><text x="1062" y="35" fill="#d8a875">手动调整</text><text x="1330" y="35" fill="#aebbc8">依工具而定</text></g>
+    <g transform="translate(0 400)"><rect x="104" y="0" width="1392" height="54" fill="#252d36"/><text x="136" y="35" fill="#f4f7fa">链式笼</text><text x="690" y="35" fill="#72d5ac">衔接、间隔、自动重连</text><text x="1062" y="35" fill="#d8a875">需自行搭建</text><text x="1330" y="35" fill="#aebbc8">实现差异较大</text></g>
+    <g transform="translate(0 454)"><rect x="104" y="0" width="1392" height="54" fill="#20262e"/><text x="136" y="35" fill="#f4f7fa">独立上下端</text><text x="690" y="35" fill="#72d5ac">长度、缩放、偏移</text><text x="1062" y="35" fill="#d8a875">通常对称</text><text x="1330" y="35" fill="#aebbc8">部分支持</text></g>
+    <g transform="translate(0 508)"><rect x="104" y="0" width="1392" height="54" fill="#252d36"/><text x="136" y="35" fill="#f4f7fa">弯曲趋势预览</text><text x="690" y="35" fill="#72d5ac">六面横/竖方向</text><text x="1062" y="35" fill="#d8a875">依赖视图操作</text><text x="1330" y="35" fill="#aebbc8">实现差异较大</text></g>
+    <g transform="translate(0 562)"><rect x="104" y="0" width="1392" height="54" fill="#20262e"/><text x="136" y="35" fill="#f4f7fa">形态专用控制器</text><text x="690" y="35" fill="#72d5ac">颜色和样式区分</text><text x="1062" y="35" fill="#d8a875">通用手柄</text><text x="1330" y="35" fill="#aebbc8">依工具而定</text></g>
+    <g transform="translate(0 616)"><rect x="104" y="0" width="1392" height="54" fill="#252d36"/><text x="136" y="35" fill="#f4f7fa">Geometry Nodes 非破坏流程</text><text x="690" y="35" fill="#72d5ac">内置</text><text x="1062" y="35" fill="#d8a875">额外配置</text><text x="1330" y="35" fill="#aebbc8">视系统而定</text></g>
+    <g transform="translate(0 670)"><rect x="104" y="0" width="1392" height="54" fill="#20262e"/><text x="136" y="35" fill="#f4f7fa">多语言</text><text x="690" y="35" fill="#72d5ac">中 / 日 / 韩 / 英</text><text x="1062" y="35" fill="#d8a875">视版本而定</text><text x="1330" y="35" fill="#aebbc8">视产品而定</text></g>
+  </g>
+  <text x="104" y="786" fill="#82909d" font-family="Segoe UI, Noto Sans CJK SC, sans-serif" font-size="17">基于公开功能范围和典型工作流概括，不针对具体品牌。实际结果取决于拓扑、对象类型和场景设置。</text>
+  <text x="104" y="818" fill="#82909d" font-family="Segoe UI, sans-serif" font-size="17">Comparison is workflow-oriented and intentionally vendor-neutral.</text>
+</svg>

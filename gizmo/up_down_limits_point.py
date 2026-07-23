@@ -76,16 +76,28 @@ class GizmoProperty(GizmoUtils):
 
     def get_delta(self, event):
         context = bpy.context
-        x, y = view3d_utils.location_3d_to_region_2d(
+        projected_up = view3d_utils.location_3d_to_region_2d(
             context.region, context.space_data.region_3d, self.point_up)
-        x2, y2 = view3d_utils.location_3d_to_region_2d(
+        projected_down = view3d_utils.location_3d_to_region_2d(
             context.region, context.space_data.region_3d, self.point_down)
+        if projected_up is None or projected_down is None:
+            return (
+                self.modifier_up_limits
+                if self.is_up_limits_mode else self.modifier_down_limits
+            )
+        x, y = projected_up
+        x2, y2 = projected_down
 
         mouse_line_distance = math.sqrt(((event.mouse_region_x - x2) ** 2) +
                                         ((event.mouse_region_y - y2) ** 2))
         straight_line_distance = math.sqrt(((x2 - x) ** 2) +
                                            ((y2 - y) ** 2))
-        delta = mouse_line_distance / straight_line_distance + 0
+        if straight_line_distance <= self.tolerance:
+            return (
+                self.modifier_up_limits
+                if self.is_up_limits_mode else self.modifier_down_limits
+            )
+        delta = mouse_line_distance / straight_line_distance
 
         v_up = Vector((x, y))
         v_down = Vector((x2, y2))
@@ -94,6 +106,8 @@ class GizmoProperty(GizmoUtils):
         mouse_v = Vector((event.mouse_region_x, event.mouse_region_y))
 
         mouse_angle = mouse_v - v_down
+        if mouse_angle.length <= self.tolerance or limits_angle.length <= self.tolerance:
+            return delta
         angle_ = mouse_angle.angle(limits_angle)
         if angle_ > (math.pi / 2):
             delta = 0
@@ -181,6 +195,8 @@ class GizmoUpdate(GizmoProperty):
         elif self.is_down_limits_mode:
             value = round(self.modifier_down_limits, 3)
             text += t("Down limit", value)
+        if self.pref.show_drag_hud:
+            text += "    |    Ctrl Keep Range · X/Y/Z Axis · Wheel Origin · W Wire"
         context.area.header_text_set(text)
 
     def restore_value(self):
@@ -236,6 +252,8 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
             elif self.is_down_limits_mode:
                 self.target_set_value(
                     "down_limits", self.int_value_down_limits)
+        self.update_multiple_modifiers_data()
+        self.update_deform_wireframe(force=True)
 
     def modal(self, context, event, tweak):
         self.clear_point_cache()
