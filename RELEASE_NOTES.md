@@ -7,7 +7,7 @@
 - Added chained-cage workflows with segment subdivision, seam reconnection, gaps, batch editing, and optional shared seam-end scaling.
 - Added independent top/bottom length, scale, and offset controls with object-bound limits.
 - Added six-face Bend Trend selection, shape-specific controllers, hover tooltips, and a dedicated Simple Deformer V2 N-panel.
-- Added a vendor-neutral feature comparison graphic at `docs/simple_deform_helper_v2_comparison.svg`.
+- Added a multilingual workflow comparison graphic covering Maya, 3ds Max, MODO, and Cinema 4D at `docs/simple_deform_helper_v2_comparison.svg`.
 - Release metadata, documentation, and install archive are aligned on version `2.0.0`.
 
 ## Validation

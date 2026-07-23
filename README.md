@@ -1,49 +1,51 @@
-# 世界领先的简易变形器 V2
+# World-leading Simple Deform Helper V2
 
-[English](README.en.md) | [简体中文](README.zh_HANS.md)
+[简体中文](README.zh_HANS.md) · [Japanese](README.ja_JP.md) · [한국어](README.ko_KR.md)
 
-**Simple Deform Helper V2** 是面向 Blender 的非破坏性笼式形变工具。它把弯曲、扭转、锥化和拉伸放进同一个可预览、可排序、可动画的形变工作流，并保留 Blender 原生简易形变修改器的直接控制能力。
+**Simple Deform Helper V2** is a non-destructive cage deformation workflow for Blender. It combines Bend, Twist, Taper, and Stretch in one previewable, sortable, animatable system while retaining direct controls for Blender's native Simple Deform modifier.
 
-![Simple Deform Helper V2 功能对比](docs/simple_deform_helper_v2_comparison.svg)
+![Simple Deform Helper V2 comparison across major DCC workflows](docs/simple_deform_helper_v2_comparison.svg)
 
-## 核心能力
+## Why V2
 
-- 一个笼同时组合弯曲、扭转、锥化和拉伸，并可在形变层列表中拖动顺序。
-- 多个独立笼式阶段，以及链式笼：支持分段、接缝衔接、间隔、自动重连和同步接缝端部缩放。
-- 顶部和底部独立的长度、缩放、偏移控制；可限制首尾不超出阶段输入物体边界。
-- 弯曲趋势面板在六个方向提供横向和竖向选择，点击后自动对齐并适配笼体。
-- 弯曲、扭转、锥化、拉伸分别使用不同颜色和形状的控制器；悬停时显示功能提示。
-- Geometry Nodes 驱动，支持 Mesh、Curve、Surface 和 Text；Lattice 对象可添加传统简易形变修改器。
-- 独立的“简易变形器 V2” N 面板，支持展开全部、临时关闭、阶段删除、链式批量编辑和笼堆栈删除。
-- 复制物体、删除几何节点后仍能重新创建独立笼式阶段；辅助空物体集中管理并默认隐藏。
-- 中日韩英界面翻译、动画同步、渲染同步和稳定的实时预览。
+- **One cage, four operations**: combine Bend, Twist, Taper, and Stretch as ordered deformation layers instead of wiring a separate tool for every operation.
+- **A real chained-cage workflow**: split a cage into segments, keep a deliberate gap, reconnect downstream frames automatically, and optionally synchronize shared seam-end scale.
+- **Independent top and bottom control**: edit length, scale, and offset at either end without forced center symmetry; object-bound limits prevent the cage from overshooting the evaluated input.
+- **Live, readable controllers**: Bend Trend exposes six faces with horizontal and vertical choices, while Bend, Twist, Taper, and Stretch use distinct controller shapes and hover tooltips.
+- **Geometry Nodes without a black box**: the cage stays non-destructive, inspectable, animatable, and compatible with Blender's modifier stack.
+- **Designed for repeated production work**: ordered layer lists, Expand All, temporary bypass, duplication-safe ownership, batch chain editing, and a dedicated Simple Deformer V2 sidebar.
+- **Multilingual by design**: English, Simplified Chinese, Japanese, and Korean UI catalogs are shipped with the extension.
 
-## 快速开始
+## Quick start
 
-1. 在 Object Mode 选择 Mesh、Curve、Surface 或 Text 对象。
-2. 打开 3D 视图侧栏的 **简易变形器 V2**。
-3. 点击 **添加笼式形变**，在形变层列表中添加并排序 Bend、Twist、Taper 或 Stretch。
-4. 使用 **对齐并适配** 让笼匹配当前阶段输入；链式笼使用 **对齐并适配链**。
-5. 在 **笼控制** 中编辑整体变换，在 **独立端部** 中分别调整顶部和底部。
-6. 需要连续分段时点击 **添加链式笼**，或将单个笼 **细分成链式笼**。
+1. Select a Mesh, Curve, Surface, or Text object in Object Mode.
+2. Open the **Simple Deformer V2** tab in the 3D View sidebar.
+3. Click **Add Cage Deform**, then add and reorder Bend, Twist, Taper, or Stretch layers.
+4. Use **Align & Fit** for one cage or **Align & Fit Chain** for a connected chain.
+5. Edit the complete cage under **Cage Controls** and shape each end under **Independent Ends**.
+6. Use **Add Chained Cages** or **Subdivide to Chained Cages** when a continuous segmented deformation is needed.
 
-启用笼式阶段后，修改器堆栈中的几何节点会持续工作；禁用扩展不会破坏已经生成的结果。
+The generated Geometry Nodes stages remain valid when the extension is disabled.
 
-## 传统修改器
+## Legacy modifier workflow
 
-对于不适合笼式工作流的对象，可在 N 面板的传统形变区域点击 **添加简易形变修改器（传统）**。原生 Simple Deform 阶段仍支持多个修改器、阶段切换、轴向 Gizmo、上下限控制、Origin 模式和线框预览。
+For objects that are not suitable for cage deformation, use **Add Simple Deform (Legacy)** in the N-panel. Native Simple Deform stages still support multiple modifiers, stage switching, axis gizmos, limits, Origin modes, and wireframe preview.
 
-## 支持范围
+## Comparison scope
 
-- Blender 4.2 LTS 及更新版本。
-- Mesh、Curve、Surface、Text：支持笼式 Geometry Nodes 形变。
-- Lattice：提供传统 Simple Deform 修改器入口，笼式工作流会明确提示暂不支持。
-- 平滑弯曲需要足够的几何分段；低拓扑时面板会给出提示。
+The comparison graphic summarizes common deformation workflows for Maya, 3ds Max, MODO, and Cinema 4D. It is a workflow-oriented product comparison, not a claim that those applications cannot reproduce a result. The V2 advantage is the focused combination of these controls in one Blender-native, ordered cage workflow.
 
-## 安装
+## Support
 
-从 GitHub Release 下载 `simple_deform_helper-2.0.0.zip`，在 **编辑 > 偏好设置 > 获取扩展 > 从磁盘安装** 中选择它。请使用 Release 生成的扩展 ZIP，不要使用 GitHub 自动生成的 Source code ZIP。
+- Blender 4.2 LTS and newer.
+- Cage workflow: Mesh, Curve, Surface, and Text.
+- Lattice: legacy Simple Deform modifier entry with an explicit cage-not-supported notice.
+- Smooth bending requires sufficient geometry segments; the panel warns when topology is too low.
 
-## 反馈
+## Installation
 
-提交问题时请附上 Blender 版本、操作系统、GPU、复现步骤、控制台日志和最小 `.blend` 文件。项目地址：[AIGODLIKE/simple_deform_helper](https://github.com/AIGODLIKE/simple_deform_helper)。
+Download `simple_deform_helper-2.0.0.zip` from [GitHub Releases](https://github.com/AIGODLIKE/simple_deform_helper/releases/tag/v2.0.0) and install it via **Edit > Preferences > Get Extensions > Install from Disk**. Use the release extension ZIP, not GitHub's generated Source code ZIP.
+
+## Feedback
+
+Please include the Blender version, OS, GPU, reproduction steps, console log, and a minimal `.blend` file. Project: [AIGODLIKE/simple_deform_helper](https://github.com/AIGODLIKE/simple_deform_helper).
