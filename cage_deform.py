@@ -2962,10 +2962,10 @@ class SDHCageDeformGizmoGroup(GizmoGroup):
 
 class SDH_CAGE_PT_deform(Panel):
     bl_idname = "SDH_CAGE_PT_deform"
-    bl_label = "Simple Deformer"
+    bl_label = "Simple Deformer V2"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Simple Deformer"
+    bl_category = "Simple Deformer V2"
 
     @classmethod
     def poll(cls, context):
