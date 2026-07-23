@@ -1,0 +1,112 @@
+name: Bug report
+description: Report a reproducible Simple Deform Helper problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please use a minimal file and remove private or production data before attaching it.
+
+  - type: input
+    id: addon-version
+    attributes:
+      label: Simple Deform Helper version
+      placeholder: 0.3.0
+    validations:
+      required: true
+
+  - type: input
+    id: blender-version
+    attributes:
+      label: Blender version and build hash
+      description: Copy this from Help > Save System Info or the startup console.
+      placeholder: Blender 5.2.0, branch ..., hash ...
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: Windows 11 24H2, macOS 15.5, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      placeholder: NVIDIA RTX 4070, driver 576.80
+    validations:
+      required: true
+
+  - type: dropdown
+    id: input-device
+    attributes:
+      label: Input device
+      options:
+        - Mouse
+        - Pen tablet
+        - Touchpad
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: modifier-stack
+    attributes:
+      label: Modifier stack
+      description: List modifiers in order and identify the active Simple Deform stage.
+      placeholder: Subdivision > Bend (active) > Solidify > Twist
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open the attached file
+        2. Select ...
+        3. Drag ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output or crash log
+      description: Paste text as a code block. Drag a log file here if it is long.
+      render: shell
+
+  - type: textarea
+    id: file
+    attributes:
+      label: Minimal .blend file or video
+      description: Drag files here, or provide a public link.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I reproduced this with only Simple Deform Helper enabled where practical.
+          required: true
+        - label: I searched existing issues for the same problem.
+          required: true

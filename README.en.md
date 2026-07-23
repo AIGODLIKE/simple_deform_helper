@@ -1,43 +1,49 @@
-# SimpleDeformHelper
-The [Chinese](https://github.com/AIGODLIKE/simple_deform_helper/blob/main/README_CN.md) readme is here
+# World-leading Simple Deform Helper V2
 
-Note: Directly downloading Zip will not install and requires downloading [publishing](https://github.com/AIGODLIKE/simple_deform_helper/releases)Version
+[简体中文](README.zh_HANS.md)
 
-Simple Deform Modifier Visual adjustment tool
+**Simple Deform Helper V2** is a non-destructive cage deformation workflow for Blender. It combines Bend, Twist, Taper, and Stretch in one previewable, sortable, animatable system while retaining direct controls for Blender's native Simple Deform modifier.
 
-You can modify parameters more intuitively by dragging the gizmo directly
+![Simple Deform Helper V2 feature comparison](docs/simple_deform_helper_v2_comparison.svg)
 
-![emm.jpeg](src/image/emm.jpeg)
+## Highlights
 
-To display the gizmo, you need to select the active object and the active modifier is a simple deformation modifier
+- Combine Bend, Twist, Taper, and Stretch in one cage, then reorder deformation layers by drag and drop.
+- Create independent cage stages or connected chained cages with gaps, automatic reconnection, and synchronized seam-end scaling.
+- Edit top and bottom length, scale, and offset independently; keep cage boundaries inside the evaluated stage input bounds.
+- Choose horizontal or vertical Bend Trend directions on all six cage faces; the cage aligns and fits after a choice.
+- Shape-specific controller colors and forms for Bend, Twist, Taper, and Stretch, with hover tooltips.
+- Geometry Nodes driven workflow for Mesh, Curve, Surface, and Text; Lattice objects expose a legacy Simple Deform entry point.
+- A dedicated Simple Deformer V2 N-panel with Expand All, per-stage mute/remove, chain batch editing, and full cage-stack removal.
+- Duplication-safe ownership, hidden helper collections, animation/render synchronization, and stable real-time previews.
+- UI translations for Simplified Chinese, Japanese, Korean, and English.
 
-1. Angle control gizmo
+## Quick start
 
-You can drag to control the modifier's value
+1. Select a Mesh, Curve, Surface, or Text object in Object Mode.
+2. Open the **Simple Deformer V2** tab in the 3D View sidebar.
+3. Click **Add Cage Deform**, then add and reorder Bend, Twist, Taper, or Stretch layers.
+4. Use **Align & Fit** for one cage or **Align & Fit Chain** for a connected chain.
+5. Edit the full cage under **Cage Controls** and shape each end under **Independent Ends**.
+6. Use **Add Chained Cages** or **Subdivide to Chained Cages** when a continuous segmented deformation is needed.
 
-2. Axial control gizmo
+The generated Geometry Nodes stages remain valid when the extension is disabled.
 
-Modify the deformation axis of the active modifier by clicking
+## Legacy modifier workflow
 
+For objects that are not suitable for cage deformation, use **Add Simple Deform (Legacy)** in the N-panel. Native Simple Deform stages still support multiple modifiers, stage switching, axis gizmos, limits, Origin modes, and wireframe preview.
 
+## Support
 
-Shortcut keys (when dragging the gizmo):
+- Blender 4.2 LTS and newer.
+- Cage workflow: Mesh, Curve, Surface, and Text.
+- Lattice: legacy Simple Deform modifier entry with an explicit cage-not-supported notice.
+- Smooth bending requires sufficient geometry segments; the panel warns when topology is too low.
 
-X Y Z: modify the modifier's deformation axis
+## Installation
 
-A: Show deformation axis gizmo
+Download `simple_deform_helper-2.0.0.zip` from GitHub Releases and install it via **Edit > Preferences > Get Extensions > Install from Disk**. Use the release extension ZIP, not GitHub's generated Source code ZIP.
 
-Scroll wheel: switch the origin control mode
+## Feedback
 
-Toggle the axial gizmo (displayed only when the mode is bending):
-
-6 directions, each direction has two directions that can be switched
-
-While dragging the upper and lower limits gizmo, you can hold down Ctrl to maintain the relative distance between the upper and lower limits
-
-V0.2.0 Release (May 31, 2023)
-    Add:
-        The display position of plug-in properties and gizmo properties can be changed, and the display position of some controllable properties of the gizmo can be changed
-    Modification:
-        Change the display deformation box to an optional value and do not display by default
-        Change the display setting deformation axis to an optional value, default not to display
+Please include the Blender version, OS, GPU, reproduction steps, console log, and a minimal `.blend` file. Project: [AIGODLIKE/simple_deform_helper](https://github.com/AIGODLIKE/simple_deform_helper).

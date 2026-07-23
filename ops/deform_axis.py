@@ -28,7 +28,14 @@ class DeformAxisOperator(Operator, GizmoUtils):
         mod = context.object.modifiers.active
         mod.deform_axis = self.Deform_Axis
 
-        empty = self.new_origin_empty_object()
+        empty = self.new_origin_empty_object(force_managed=True)
+        if empty is None:
+            self.report(
+                {"INFO"},
+                "Deform axis changed; the user-supplied Origin was preserved",
+            )
+            self.pref.display_bend_axis_switch_gizmo = False
+            return {"FINISHED"}
         is_positive = self.number_is_positive(mod.angle)
 
         for limit, value in (("max_x", self.X_Value),

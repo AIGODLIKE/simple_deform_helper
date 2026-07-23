@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Blender Extensions page
+    url: https://extensions.blender.org/add-ons/simple-deform-helper/
+    about: Check supported versions, release notes, and installation information.

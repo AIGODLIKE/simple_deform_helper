@@ -4,7 +4,7 @@ import bpy
 from bpy.props import PointerProperty, StringProperty, FloatProperty, EnumProperty, FloatVectorProperty
 from bpy.types import PropertyGroup
 
-from .utils import PublicData, GizmoUtils
+from .utils import PublicData, GizmoUtils, remove_unused_control_collections
 
 
 class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
@@ -33,44 +33,47 @@ class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
     origin_mode_items = (
         ("UP_LIMITS",
          "Follow Upper Limit(Red)",
-         "Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the origin "
-         "position as the upper limit during operation"),
+         "Create a managed Origin and keep it at the upper limit while dragging"),
         ("DOWN_LIMITS",
          "Follow Lower Limit(Green)",
-         "Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the origin "
-         "position as the lower limit during operation"),
+         "Create a managed Origin and keep it at the lower limit while dragging"),
         ("LIMITS_MIDDLE",
          "Middle",
-         "Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the "
-         "origin position between the upper and lower limits during operation"),
+         "Create a managed Origin between the upper and lower limits"),
         ("MIDDLE",
          "Bound Middle",
-         "Add an empty object origin as the rotation axis (if there is an origin, do not add it), and set the origin "
-         "position as the position between the bounding boxes during operation"),
+         "Create a managed Origin at the deformation bounds center"),
         ("NOT", "No origin operation", ""),
     )
 
     def update_origin_mode(self, context):
-        obj = None
-        for o in context.scene.objects:
-            if o.SimpleDeformGizmo_PropertyGroup == self:
-                obj = o
-        if not obj:
+        if self.origin_mode != "NOT":
+            return
+        obj = getattr(self, "id_data", None)
+        if not isinstance(obj, bpy.types.Object):
+            return
+        parent = obj.parent
+        if not parent or not self.is_managed_origin(obj, parent):
             return
 
-        is_type = obj.type == "EMPTY"
-        is_name = obj.name.startswith("ViewSimpleDeformGizmo__Empty_")
-        is_origin = obj.parent and getattr(obj.parent.modifiers.active, "origin", None) == obj
-        is_not = self.origin_mode == "NOT"
-        if is_type and is_name and is_origin and is_not:
-            obj.parent.SimpleDeformGizmo_PropertyGroup.origin_mode = "NOT"
-            bpy.data.objects.remove(obj)
+        for modifier in parent.modifiers:
+            if getattr(modifier, "origin", None) == obj:
+                modifier.origin = self.source_origin
+        parent.SimpleDeformGizmo_PropertyGroup.origin_mode = "NOT"
+        bpy.data.objects.remove(obj, do_unlink=True)
+        remove_unused_control_collections()
 
     origin_mode: EnumProperty(
         name="Origin control mode",
         default="NOT",
         items=origin_mode_items,
         update=update_origin_mode
+    )
+
+    source_origin: PointerProperty(
+        name="Original Origin",
+        type=bpy.types.Object,
+        options={"HIDDEN", "SKIP_SAVE"},
     )
 
 
@@ -118,9 +121,9 @@ def register():
 
 
 def unregister():
-    bpy.utils.unregister_class(SimpleDeformGizmoObjectPropertyGroup)
     del bpy.types.Object.SimpleDeformGizmo_PropertyGroup
 
     del bpy.types.Object.simple_deform_helper_rotate_xyz
     del bpy.types.Object.simple_deform_helper_rotate_angle
     del bpy.types.Object.simple_deform_helper_rotate_axis
+    bpy.utils.unregister_class(SimpleDeformGizmoObjectPropertyGroup)

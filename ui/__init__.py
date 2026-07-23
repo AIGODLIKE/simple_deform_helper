@@ -5,5 +5,5 @@ def register():
 
 
 def unregister():
-    panel.unregister()
     header.unregister()
+    panel.unregister()

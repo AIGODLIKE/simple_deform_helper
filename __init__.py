@@ -7,17 +7,18 @@ from . import (
     msgbus,
     translate,
     preferences,
+    cage_deform,
 )
 
 bl_info = {
-    "name": "Simple Deform Helper",
+    "name": "Simple Deform Helper V2",
     "author": "AIGODLIKE Community:小萌新",
-    "version": (0, 2, 7),
-    "blender": (4, 0, 0),
-    "location": "3D View -> Select an object and the active modifier is "
-                "simple deformation",
-    "description": "Simple Deform visualization adjustment tool",
-    "doc_url": "https://gitee.com/AIGODLIKE/simple_deform_helper/wikis",
+    "version": (2, 0, 0),
+    "blender": (4, 2, 0),
+    "location": "3D View > Sidebar > Simple Deformer",
+    "description": "Cage deformation and stage-aware Simple Deform controls",
+    "doc_url": "https://github.com/AIGODLIKE/simple_deform_helper",
+    "tracker_url": "https://github.com/AIGODLIKE/simple_deform_helper/issues",
     "category": "AIGODLIKE"
 }
 
@@ -74,14 +75,15 @@ utils.py:
 # -------------------------
 """
 module_tuple = (
-    ops,
-    ui,
-    gizmo,
-    props,
-    update,
-    msgbus,
     translate,
     preferences,
+    props,
+    cage_deform,
+    ops,
+    update,
+    msgbus,
+    gizmo,
+    ui,
 )
 
 
@@ -91,5 +93,5 @@ def register():
 
 
 def unregister():
-    for item in module_tuple:
+    for item in reversed(module_tuple):
         item.unregister()

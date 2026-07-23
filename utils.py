@@ -3,11 +3,85 @@ import math
 import re
 import uuid
 from functools import cache
+from time import monotonic
 
 import bpy
 import numpy as np
 from bpy.types import AddonPreferences
 from mathutils import Vector, Matrix, Euler
+
+from .stages import StageCache, hide_runtime_object, render_job_running
+
+
+CONTROL_COLLECTION_NAME = "Simple Deform Controls"
+CONTROL_COLLECTION_MARKER = "_simple_deform_helper_controls"
+
+
+def _collection_contains(root, collection):
+    if root == collection:
+        return True
+    return any(_collection_contains(child, collection) for child in root.children)
+
+
+def control_collection(scene=None, create=True):
+    """Return the scene-local collection used for persistent helper objects."""
+    scene = scene or getattr(bpy.context, "scene", None)
+    if scene is None:
+        return None
+    for collection in bpy.data.collections:
+        if (
+                collection.get(CONTROL_COLLECTION_MARKER, False) and
+                _collection_contains(scene.collection, collection)
+        ):
+            return collection
+    if not create:
+        return None
+    collection = bpy.data.collections.new(CONTROL_COLLECTION_NAME)
+    collection[CONTROL_COLLECTION_MARKER] = True
+    collection.hide_render = True
+    try:
+        collection.color_tag = "COLOR_05"
+    except (AttributeError, TypeError):
+        pass
+    scene.collection.children.link(collection)
+    return collection
+
+
+def move_object_to_control_collection(obj, scene=None):
+    """Consolidate an add-on-owned helper without touching user objects."""
+    collection = control_collection(scene)
+    if obj is None or collection is None:
+        return collection
+    if obj.name not in collection.objects:
+        collection.objects.link(obj)
+    for owner in tuple(obj.users_collection):
+        if owner != collection:
+            owner.objects.unlink(obj)
+    return collection
+
+
+def set_helper_object_visible(obj, visible, view_layer=None):
+    """Hide helpers by default while allowing an explicit editing session."""
+    if obj is None:
+        return
+    obj.hide_render = True
+    obj.hide_select = not visible
+    layers = (view_layer,) if view_layer is not None else tuple(
+        layer for scene in bpy.data.scenes for layer in scene.view_layers)
+    for layer in layers:
+        try:
+            obj.hide_set(not visible, view_layer=layer)
+        except (ReferenceError, RuntimeError, TypeError):
+            pass
+
+
+def remove_unused_control_collections():
+    for collection in tuple(bpy.data.collections):
+        if (
+                collection.get(CONTROL_COLLECTION_MARKER, False) and
+                not collection.objects and not collection.children
+        ):
+            bpy.data.collections.remove(collection)
 
 
 def get_pref():
@@ -42,7 +116,7 @@ def from_curve_get_animation_offset(obj: bpy.types.Object, default=None) -> Vect
                 sl = Vector(spline.bezier_points[0].co[:])
             else:
                 # "POLY", "BEZIER", "NURBS"
-                sl = Vector(spline.points[0].co[:])
+                sl = Vector(spline.points[0].co[:3])
                 # bpy.data.curves["BézierCircle.001"].splines[0].points[0].co[1]
             return sl
         except Exception as e:
@@ -73,7 +147,7 @@ stuck due to excessive update frequency
     # Save Deform Vertex And Indices,Update data only when updating
     # deformation boxes
 
-    G_MultipleModifiersBoundData = {}
+    G_MultipleModifiersBoundData = {}  # Legacy compatibility; stage data lives in StageCache.
 
     G_INDICES = (
         (0, 1), (0, 2), (1, 3), (2, 3),
@@ -84,11 +158,19 @@ stuck due to excessive update frequency
 
     G_DEFORM_MESH_NAME = G_NAME + "DeformMesh"
     G_TMP_MULTIPLE_MODIFIERS_MESH = "TMP_" + G_NAME + "MultipleModifiersMesh"
-    G_SUB_LEVELS = 7
+    G_PREVIEW_SEGMENTS = 24
+    G_PREVIEW_INTERVAL = 1.0 / 30.0
+    G_PREVIEW_LAST_UPDATE = 0.0
 
     G_NAME_EMPTY_AXIS = G_NAME + "_Empty_"
     G_NAME_CON_LIMIT = G_NAME + "Constraints_Limit_Rotation"  # constraints name
     G_NAME_CON_COPY_ROTATION = G_NAME + "Constraints_Copy_Rotation"
+
+    G_OWNER_PROP = "_simple_deform_helper_owned"
+    G_OWNER_VERSION_PROP = "_simple_deform_helper_owner_version"
+    G_OWNER_UUID_PROP = "_simple_deform_helper_owner_uuid"
+    G_OBJECT_UUID_PROP = "_simple_deform_helper_uuid"
+    G_OWNER_VERSION = 1
 
     G_MODIFIERS_PROPERTY = [  # Copy modifier data
         "angle",
@@ -141,9 +223,7 @@ class PublicPoll(PublicClass):
             mod) and available_obj_type
         is_obj_mode = PublicPoll.poll_context_mode_is_object()
         show_mod = mod.show_viewport
-        not_is_self_mesh = obj.name != PublicPoll.G_NAME
-        return is_available_obj and is_obj_mode and show_mod and \
-            not_is_self_mesh
+        return is_available_obj and is_obj_mode and show_mod
 
     @classmethod
     def poll_object_is_show(cls, context: "bpy.types.Context") -> bool:
@@ -305,26 +385,29 @@ class GizmoClassMethod(PublicTranslate):
     @classmethod
     def get_mesh_max_min_co(cls,
                             obj: "bpy.context.object") -> "[Vector,Vector]":
+        list_vertices = None
         if obj.type == "MESH":
             ver_len = obj.data.vertices.__len__()
-            list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
-            obj.data.vertices.foreach_get("co", list_vertices)
-            list_vertices = list_vertices.reshape(ver_len, 3)
+            if ver_len:
+                list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
+                obj.data.vertices.foreach_get("co", list_vertices)
+                list_vertices = list_vertices.reshape(ver_len, 3)
         elif obj.type == "LATTICE":
             ver_len = obj.data.points.__len__()
-            list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
-            obj.data.points.foreach_get("co_deform", list_vertices)
-            list_vertices = list_vertices.reshape(ver_len, 3)
+            if ver_len:
+                list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
+                obj.data.points.foreach_get("co_deform", list_vertices)
+                list_vertices = list_vertices.reshape(ver_len, 3)
         elif obj.type == "CURVE":
-            list_vertices = None
             for spline in obj.data.splines:
                 pl = spline.points.__len__()
                 bl = spline.bezier_points.__len__()
                 data = None
                 if pl:
-                    p_co = np.zeros(pl * 3, dtype=np.float32)
+                    # SplinePoint.co is a four-dimensional homogeneous value.
+                    p_co = np.zeros(pl * 4, dtype=np.float32)
                     spline.points.foreach_get("co", p_co)
-                    data = p_co.reshape(pl, 3)
+                    data = p_co.reshape(pl, 4)[:, :3]
                 if bl:
                     b_co = np.zeros(bl * 3, dtype=np.float32)
                     spline.bezier_points.foreach_get("co", b_co)
@@ -334,8 +417,17 @@ class GizmoClassMethod(PublicTranslate):
                         list_vertices = data
                     else:
                         list_vertices = np.concatenate((list_vertices, data))
-        else:
-            list_vertices = np.zeros((3, 3), dtype=np.float32)
+        if list_vertices is None or list_vertices.size == 0:
+            bound_box = tuple(Vector(point) for point in getattr(obj, "bound_box", ()))
+            is_invalid = (
+                not bound_box or
+                (len(bound_box) == 8 and all(point == Vector((-1, -1, -1)) for point in bound_box))
+            )
+            if is_invalid:
+                zero = Vector((0.0, 0.0, 0.0))
+                zero.freeze()
+                return zero, zero
+            list_vertices = np.asarray(bound_box, dtype=np.float32)
         return (
             Vector(list_vertices.min(axis=0)).freeze(),
             Vector(list_vertices.max(axis=0)).freeze(),
@@ -402,6 +494,26 @@ class GizmoClassMethod(PublicTranslate):
         return obj and (obj.type in ("MESH", "LATTICE", "CURVE", "FONT"))
 
     @classmethod
+    def topology_axis_sample_count(cls, obj, axis):
+        axis_index = {"X": 0, "Y": 1, "Z": 2}.get(axis, 2)
+        values = []
+        if not obj:
+            return 0
+        if obj.type == "MESH":
+            values = [vertex.co[axis_index] for vertex in obj.data.vertices]
+        elif obj.type == "LATTICE":
+            values = [point.co_deform[axis_index] for point in obj.data.points]
+        elif obj.type == "CURVE":
+            for spline in obj.data.splines:
+                values.extend(point.co[axis_index] for point in spline.points)
+                values.extend(point.co[axis_index] for point in spline.bezier_points)
+        elif obj.type == "FONT":
+            # Text is evaluated procedurally; its resolution is not represented
+            # by editable object-space points.
+            return 4
+        return len({round(float(value), 6) for value in values})
+
+    @classmethod
     def from_vertices_new_mesh(cls, name, vertices):
         new_mesh = bpy.data.meshes.new(name)
         new_mesh.from_pydata(vertices, cls.G_INDICES, [])
@@ -409,8 +521,10 @@ class GizmoClassMethod(PublicTranslate):
         return new_mesh
 
     @classmethod
-    def copy_modifier_parameter(cls, old_mod, new_mod):
+    def copy_modifier_parameter(cls, old_mod, new_mod, include_vertex_group=True):
         for prop_name in cls.G_MODIFIERS_PROPERTY:
+            if prop_name in {"vertex_group", "invert_vertex_group"} and not include_vertex_group:
+                continue
             origin_value = getattr(old_mod, prop_name, None)
             is_array_prop = type(origin_value) == bpy.types.bpy_prop_array
             value = origin_value[:] if is_array_prop else origin_value
@@ -496,18 +610,23 @@ class PublicProperty(GizmoClassMethod):
     @classmethod
     def clear_modifiers_data(cls):
         cls.G_MultipleModifiersBoundData.clear()
+        StageCache.clear()
 
     @classmethod
     def clear_deform_data(cls):
         cls.G_DeformDrawData.clear()
+        PublicData.G_PREVIEW_LAST_UPDATE = 0.0
 
     # --------------- Cache Data ----------------------
     @property
     def modifier_bound_co(self):
-        key = "self.modifier.name"
-        if key not in self.G_MultipleModifiersBoundData:
-            self.G_MultipleModifiersBoundData[key] = self.get_mesh_max_min_co(self.obj)
-        return self.G_MultipleModifiersBoundData[key]
+        obj = self.obj
+        modifier = self.modifier
+        if obj and modifier:
+            stage_bounds = StageCache.bounds_for(obj, modifier)
+            if stage_bounds is not None:
+                return stage_bounds
+        return self.get_mesh_max_min_co(obj)
 
     @property
     def modifier_bound_box_pos(self):
@@ -641,6 +760,33 @@ class PublicProperty(GizmoClassMethod):
 
 
 class GizmoUpdate(PublicProperty):
+    @classmethod
+    def ensure_object_uuid(cls, obj):
+        value = str(obj.get(cls.G_OBJECT_UUID_PROP, ""))
+        duplicate = value and any(
+            other != obj and str(other.get(cls.G_OBJECT_UUID_PROP, "")) == value
+            for other in bpy.data.objects
+        )
+        if not value or duplicate:
+            value = str(uuid.uuid4())
+            obj[cls.G_OBJECT_UUID_PROP] = value
+        return value
+
+    @classmethod
+    def is_managed_origin(cls, origin, owner=None):
+        if not origin:
+            return False
+        try:
+            if not bool(origin.get(cls.G_OWNER_PROP, False)):
+                return False
+            if owner is None:
+                return True
+            owner_uuid = str(owner.get(cls.G_OBJECT_UUID_PROP, ""))
+            origin_owner_uuid = str(origin.get(cls.G_OWNER_UUID_PROP, ""))
+            return bool(owner_uuid and owner_uuid == origin_owner_uuid)
+        except ReferenceError:
+            return False
+
     def fix_origin_parent_and_angle(self):
         obj = self.obj
         mod = self.modifier
@@ -648,54 +794,81 @@ class GizmoUpdate(PublicProperty):
             return
 
         origin = mod.origin
-        if not origin:
+        if not self.is_managed_origin(origin, obj):
             return
 
         if origin.parent != obj:
+            world_matrix = origin.matrix_world.copy()
             origin.parent = obj
+            origin.matrix_parent_inverse = obj.matrix_world.inverted_safe()
+            origin.matrix_world = world_matrix
         origin.rotation_euler.zero()
         if not self.modifier_origin_is_available:
             origin.location.zero()
         origin.scale = 1, 1, 1
 
-    def new_origin_empty_object(self):
+    def new_origin_empty_object(self, force_managed=False):
         mod = self.modifier
         obj = self.obj
+        if not mod or not obj:
+            return None
+
         origin = mod.origin
+        if origin and not self.is_managed_origin(origin, obj):
+            # User-supplied origins are read-only. Features that need to move or
+            # constrain an origin must not take ownership implicitly.
+            return None
+
         if not origin:
+            if not force_managed and not self.modifier_is_use_origin_axis:
+                return None
             new_name = self.G_NAME_EMPTY_AXIS + str(uuid.uuid4())
             origin_object = bpy.data.objects.new(new_name, None)
+            origin_object[self.G_OWNER_PROP] = True
+            origin_object[self.G_OWNER_VERSION_PROP] = self.G_OWNER_VERSION
+            origin_object[self.G_OWNER_UUID_PROP] = self.ensure_object_uuid(obj)
             self.link_obj_to_active_collection(origin_object)
-            origin_object.hide_set(True)
-            origin_object.empty_display_size = min(obj.dimensions)
+            move_object_to_control_collection(origin_object, bpy.context.scene)
+            set_helper_object_visible(origin_object, False)
+            origin_object.empty_display_size = max(min(obj.dimensions), 0.1)
             mod.origin = origin_object
             origin_mode = self.obj.SimpleDeformGizmo_PropertyGroup.origin_mode
             origin_object.SimpleDeformGizmo_PropertyGroup.origin_mode = origin_mode
         else:
             origin_object = mod.origin
-            origin_object.hide_viewport = False
         if origin_object == obj:
-            return
+            return None
+
         # add constraints
         name = self.G_NAME_CON_LIMIT
-        if origin_object.constraints.keys().__len__() > 2:
-            origin_object.constraints.clear()
         if name in origin_object.constraints.keys():
-            limit_constraints = origin.constraints.get(name)
+            limit_constraints = origin_object.constraints.get(name)
+            if limit_constraints.type != "LIMIT_ROTATION":
+                origin_object.constraints.remove(limit_constraints)
+                limit_constraints = None
         else:
+            limit_constraints = None
+        if limit_constraints is None:
             limit_constraints = origin_object.constraints.new(
                 "LIMIT_ROTATION")
             limit_constraints.name = name
-            limit_constraints.owner_space = "WORLD"
+        limit_constraints.owner_space = "WORLD"
+        if hasattr(limit_constraints, "space_object"):
             limit_constraints.space_object = obj
         limit_constraints.use_transform_limit = True
         limit_constraints.use_limit_x = True
         limit_constraints.use_limit_y = True
         limit_constraints.use_limit_z = True
+
         con_copy_name = self.G_NAME_CON_COPY_ROTATION
         if con_copy_name in origin_object.constraints.keys():
-            copy_constraints = origin.constraints.get(con_copy_name)
+            copy_constraints = origin_object.constraints.get(con_copy_name)
+            if copy_constraints.type != "COPY_ROTATION":
+                origin_object.constraints.remove(copy_constraints)
+                copy_constraints = None
         else:
+            copy_constraints = None
+        if copy_constraints is None:
             copy_constraints = origin_object.constraints.new(
                 "COPY_ROTATION")
             copy_constraints.name = con_copy_name
@@ -707,7 +880,11 @@ class GizmoUpdate(PublicProperty):
         return origin_object
 
     def update_object_origin_matrix(self):
-        if self.modifier_is_have_origin and self.modifier_origin_is_available:
+        if (
+                self.modifier_is_have_origin and
+                self.modifier_origin_is_available and
+                self.is_managed_origin(self.modifier.origin, self.obj)
+        ):
             origin_mode = self.origin_mode
             origin_object = self.modifier.origin
 
@@ -740,147 +917,151 @@ class GizmoUpdate(PublicProperty):
         context = bpy.context
         if not self.obj_type_is_usable(
                 obj) or not self.poll_modifier_type_is_simple(context):
-            return
+            return False
         self.clear_point_cache()
-        self.clear_modifiers_data()
-        data = bpy.data
-        name = self.G_TMP_MULTIPLE_MODIFIERS_MESH
+        self.G_MultipleModifiersBoundData.clear()
+        return StageCache.rebuild(context, obj)
 
-        # del old tmp object
-        old_object = data.objects.get(name)
-        if old_object:
-            data.objects.remove(old_object)
+    @classmethod
+    def _preview_box_geometry(cls, bounds, segments=None):
+        segments = max(2, int(segments or cls.G_PREVIEW_SEGMENTS))
+        corners = cls.tow_co_to_coordinate(bounds)
+        vertices = []
+        edges = []
+        for start_index, end_index in cls.G_INDICES:
+            start = Vector(corners[start_index])
+            end = Vector(corners[end_index])
+            base = len(vertices)
+            for segment in range(segments + 1):
+                factor = segment / segments
+                vertices.append(start.lerp(end, factor))
+                if segment:
+                    edges.append((base + segment - 1, base + segment))
+        return vertices, edges
 
-        if data.meshes.get(name):
-            data.meshes.remove(data.meshes.get(name))
-
-        """get origin mesh bound box as multiple basic mesh 
-        add multiple modifiers and get  depsgraph obj bound box
-        """
-        vertices = self.tow_co_to_coordinate(self.get_mesh_max_min_co(self.obj))
-        new_mesh = self.from_vertices_new_mesh(name, vertices)
-        modifiers_obj = data.objects.new(name, new_mesh)
-
-        self.link_obj_to_active_collection(modifiers_obj)
-        if modifiers_obj == obj:  # is cycles
-            return
-        if modifiers_obj.parent != obj:
-            modifiers_obj.parent = obj
-
-        modifiers_obj.modifiers.clear()
-        subdivision = modifiers_obj.modifiers.new("1", "SUBSURF")
-        subdivision.levels = self.G_SUB_LEVELS
-
-        for mod in context.object.modifiers:
-            if self.mod_is_simple_deform_type(mod):
-                dep_bound_tow_co = self.get_mesh_max_min_co(
-                    self.get_depsgraph(modifiers_obj))
-                self.G_MultipleModifiersBoundData[mod.name] = dep_bound_tow_co
-                new_mod = modifiers_obj.modifiers.new(mod.name, "SIMPLE_DEFORM")
-                self.copy_modifier_parameter(mod, new_mod)
-        data.objects.remove(modifiers_obj)
-
-    def update_deform_wireframe(self):
-        if not self.pref.update_deform_wireframe:
-            return
-        name = self.modifier.name
-        if name not in self.G_MultipleModifiersBoundData:
-            return
-        deform_name = self.G_DEFORM_MESH_NAME
-
-        co = self.G_MultipleModifiersBoundData[name]
-
-        deform_obj = bpy.data.objects.get(deform_name, None)
-
-        if not deform_obj:
-            a, b = 0.5, -0.5
-            vertices = self.tow_co_to_coordinate(((b, b, b), (a, a, a)))
-            new_mesh = self.from_vertices_new_mesh(name, vertices)
-            deform_obj = bpy.data.objects.new(deform_name, new_mesh)
-            deform_obj.hide_select = True
-            # deform_obj.hide_set(True)
-            deform_obj.hide_render = True
-            deform_obj.hide_viewport = True
-
-        self.link_obj_to_active_collection(deform_obj)
-
-        deform_obj.parent = self.obj
-
-        tmv = deform_obj.hide_viewport
-        tmh = deform_obj.hide_get()
-        deform_obj.hide_viewport = False
-        deform_obj.hide_set(False)
-
-        # Update Matrix
-        deform_obj.matrix_world = Matrix()
-        center = (co[0] + co[1]) / 2
-        scale = co[1] - co[0]
-        deform_obj.matrix_world = self.obj_matrix_world @ \
-                                  deform_obj.matrix_world
-        deform_obj.location = center
-        deform_obj.scale = scale
-
-        if self.obj.type == "CURVE" and self.obj.data.use_path:
-            """Handling Curve Origin Offsets"""
-            loc_mat = get_loc_matrix(center)
-            curve_offset = from_curve_get_animation_offset(self.obj)
-            if curve_offset is not None:
-                mat = (loc_mat @ get_loc_matrix(curve_offset).inverted())
-                t = mat.to_translation()
-                deform_obj.location = t
-
-        # Update Modifier data
-        mods = deform_obj.modifiers
-        mods.clear()
-        subdivision = mods.new("1", "SUBSURF")
-        subdivision.levels = self.G_SUB_LEVELS
-
-        new_mod = mods.new(name, "SIMPLE_DEFORM")
-        self.copy_modifier_parameter(self.modifier, new_mod)
-
-        # Get vertices data
-        context = bpy.context
-        obj = self.get_depsgraph(deform_obj)
-        matrix = deform_obj.matrix_world.copy()
-
-        ver_len = obj.data.vertices.__len__()
-        edge_len = obj.data.edges.__len__()
-        if "numpy_data" not in self.G_DeformDrawData:
-            self.G_DeformDrawData["numpy_data"] = {}
-        numpy_data = self.G_DeformDrawData["numpy_data"]
-        key = (ver_len, edge_len)
-        if key in numpy_data:
-            list_edges, list_vertices = numpy_data[key]
-        else:
-            list_edges = np.zeros(edge_len * 2, dtype=np.int32)
-            list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
-            numpy_data[key] = (list_edges, list_vertices)
-        obj.data.vertices.foreach_get("co", list_vertices)
-        ver = list_vertices.reshape((ver_len, 3))
-        ver = np.insert(ver, 3, 1, axis=1).T
-        ver[:] = np.dot(matrix, ver)
-
-        ver /= ver[3, :]
-        ver = ver.T
-        ver = ver[:, :3]
-        obj.data.edges.foreach_get("vertices", list_edges)
-        indices = list_edges.reshape((edge_len, 2))
-
-        modifiers = self.get_modifiers_parameter(self.modifier)
-        limits = context.object.modifiers.active.limits[:]
-
-        deform_obj.hide_viewport = tmv
-        deform_obj.hide_set(tmh)
-
-        act = self.obj.modifiers.active
-        if act and act.origin:
-            con = self.get_constraints_parameter_from_object(act.origin)
-        else:
-            con = self.get_constraints_parameter_from_object(self.obj)
-
-        self.G_DeformDrawData["simple_deform_bound_data"] = (
-            ver, indices, self.obj_matrix_world, modifiers, limits[:], con
+    def preview_signature(self):
+        mod = self.modifier
+        obj = self.obj
+        if not mod or not obj:
+            return None
+        origin = mod.origin
+        origin_matrix = None
+        if origin:
+            origin_matrix = tuple(tuple(row) for row in origin.matrix_world)
+        return (
+            int(obj.as_pointer()),
+            int(mod.as_pointer()),
+            tuple(repr(value) for value in self.get_modifiers_parameter(mod)),
+            tuple(tuple(row) for row in obj.matrix_world),
+            origin_matrix,
         )
+
+    def preview_context_signature(self):
+        """Stable identity used to keep the last good preview while throttled."""
+        mod = self.modifier
+        obj = self.obj
+        if not mod or not obj:
+            return None
+        return int(obj.as_pointer()), int(mod.as_pointer())
+
+    def preview_data_matches_context(self, data):
+        return bool(
+            data and
+            data.get("context_signature") == self.preview_context_signature()
+        )
+
+    def update_deform_wireframe(self, force=False):
+        if not self.pref.update_deform_wireframe:
+            self.clear_deform_data()
+            return False
+        if render_job_running() or not self.active_modifier_is_simple_deform:
+            return False
+
+        now = monotonic()
+        preview_fps = max(1, int(getattr(self.pref, "wireframe_preview_fps", 30)))
+        preview_interval = 1.0 / preview_fps
+        current_data = self.G_DeformDrawData.get("simple_deform_bound_data")
+        if not self.preview_data_matches_context(current_data):
+            # A newly selected object or modifier must not inherit the previous
+            # stage's throttle delay.
+            force = True
+        if not force and now - PublicData.G_PREVIEW_LAST_UPDATE < preview_interval:
+            return False
+        PublicData.G_PREVIEW_LAST_UPDATE = now
+
+        context = bpy.context
+        collection = getattr(context, "collection", None)
+        if collection is None:
+            layer_collection = getattr(context.view_layer, "active_layer_collection", None)
+            collection = getattr(layer_collection, "collection", None)
+        if collection is None:
+            return False
+
+        preview_mesh = None
+        preview_obj = None
+        try:
+            vertices, edges = self._preview_box_geometry(self.modifier_bound_co)
+            unique = str(uuid.uuid4())
+            preview_mesh = bpy.data.meshes.new(f"SDH_PreviewMesh_{unique}")
+            preview_mesh.from_pydata(vertices, edges, [])
+            preview_mesh.update()
+            preview_obj = bpy.data.objects.new(f"SDH_Preview_{unique}", preview_mesh)
+            preview_obj[self.G_OWNER_PROP] = True
+            preview_obj[self.G_OWNER_VERSION_PROP] = self.G_OWNER_VERSION
+            preview_obj.hide_render = True
+            preview_obj.hide_select = True
+            preview_obj.display_type = "WIRE"
+            preview_obj.matrix_world = self.obj_matrix_world
+            collection.objects.link(preview_obj)
+            hide_runtime_object(preview_obj, getattr(context, "scene", None))
+
+            preview_modifier = preview_obj.modifiers.new(
+                self.modifier.name, "SIMPLE_DEFORM")
+            self.copy_modifier_parameter(
+                self.modifier, preview_modifier, include_vertex_group=False)
+
+            context.view_layer.update()
+            evaluated = preview_obj.evaluated_get(context.evaluated_depsgraph_get())
+            matrix = preview_obj.matrix_world.copy()
+            ver_len = len(evaluated.data.vertices)
+            edge_len = len(evaluated.data.edges)
+            list_vertices = np.zeros(ver_len * 3, dtype=np.float32)
+            list_edges = np.zeros(edge_len * 2, dtype=np.int32)
+            evaluated.data.vertices.foreach_get("co", list_vertices)
+            evaluated.data.edges.foreach_get("vertices", list_edges)
+
+            ver = list_vertices.reshape((ver_len, 3))
+            ver = np.insert(ver, 3, 1, axis=1).T
+            ver[:] = np.dot(matrix, ver)
+            ver /= ver[3, :]
+            positions = ver.T[:, :3]
+            indices = list_edges.reshape((edge_len, 2))
+
+            self.G_DeformDrawData["simple_deform_bound_data"] = {
+                "positions": positions,
+                "indices": indices,
+                "signature": self.preview_signature(),
+                "context_signature": self.preview_context_signature(),
+            }
+            self.G_DeformDrawData.pop("preview_error", None)
+            return True
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            if self.G_DeformDrawData.get("preview_error") != message:
+                print("Simple Deform Helper preview:", message)
+                self.G_DeformDrawData["preview_error"] = message
+            return False
+        finally:
+            if preview_obj is not None:
+                try:
+                    bpy.data.objects.remove(preview_obj, do_unlink=True)
+                except (ReferenceError, RuntimeError):
+                    pass
+            if preview_mesh is not None and preview_mesh.users == 0:
+                try:
+                    bpy.data.meshes.remove(preview_mesh)
+                except (ReferenceError, RuntimeError):
+                    pass
 
 
 class GizmoUtils(GizmoUpdate):
@@ -945,17 +1126,28 @@ class GizmoUtils(GizmoUpdate):
 
     def event_handle(self, event):
         """General event triggering"""
-        data_path = ("object.SimpleDeformGizmo_PropertyGroup.origin_mode",
-                     "object.modifiers.active.origin.SimpleDeformGizmo_PropertyGroup.origin_mode")
+        if getattr(event, "is_repeat", False):
+            return {"RUNNING_MODAL"}
 
         if event.type in ("WHEELUPMOUSE", "WHEELDOWNMOUSE"):
             reverse = (event.type == "WHEELUPMOUSE")
-            for path in data_path:
+            if self.modifier.origin:
+                if not self.is_managed_origin(self.modifier.origin, self.obj):
+                    return {"RUNNING_MODAL"}
+                path = "object.modifiers.active.origin.SimpleDeformGizmo_PropertyGroup.origin_mode"
+            else:
+                path = "object.SimpleDeformGizmo_PropertyGroup.origin_mode"
+            try:
                 bpy.ops.wm.context_cycle_enum(
                     data_path=path, reverse=reverse, wrap=True)
-        elif event.type in ("X", "Y", "Z"):
+            except RuntimeError:
+                pass
+        elif event.type in ("X", "Y", "Z") and event.value == "PRESS":
             self.obj.modifiers.active.deform_axis = event.type
-        elif event.type == "A" and "BEND" == self.modifier.deform_method:
+        elif (
+                event.type == "A" and event.value == "PRESS" and
+                "BEND" == self.modifier.deform_method
+        ):
             self.pref.display_bend_axis_switch_gizmo = True
             return {"FINISHED"}
         elif event.type == "W" and event.value == "RELEASE":

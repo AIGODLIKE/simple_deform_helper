@@ -4,8 +4,22 @@ blender_version_min = "4.2.0"
 id = "simple_deform_helper"
 license = ["SPDX:GPL-3.0-or-later", ]
 maintainer = "AIGODLIKE Community(小萌新)"
-name = "Simple Deform Helper"
-tagline = "Simple Deform visualization adjustment tool"
+name = "Simple Deform Helper V2"
+tagline = "World-leading non-destructive cage deformation controls"
 type = "add-on"
-version = "0.2.7"
+version = "2.0.0"
 tags = ["3D View", "Object", "Mesh"]
+
+[build]
+paths_exclude_pattern = [
+    "__pycache__/",
+    ".*",
+    "*.zip",
+    "/tests/",
+    "/README.md",
+    "/README.en.md",
+    "/README.zh_HANS.md",
+    "/RELEASE_NOTES.md",
+    "/src/image/",
+    "/docs/",
+]
