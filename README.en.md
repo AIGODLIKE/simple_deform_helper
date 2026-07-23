@@ -1,6 +1,6 @@
 # World-leading Simple Deform Helper V2
 
-[简体中文](README.zh_HANS.md)
+[简体中文](README.zh_HANS.md) · [日本語](README.ja_JP.md) · [한국어](README.ko_KR.md)
 
 **Simple Deform Helper V2** is a non-destructive cage deformation workflow for Blender. It combines Bend, Twist, Taper, and Stretch in one previewable, sortable, animatable system while retaining direct controls for Blender's native Simple Deform modifier.
 
@@ -28,6 +28,10 @@
 6. Use **Add Chained Cages** or **Subdivide to Chained Cages** when a continuous segmented deformation is needed.
 
 The generated Geometry Nodes stages remain valid when the extension is disabled.
+
+## Comparison scope
+
+The comparison graphic summarizes common deformation workflows for Maya, 3ds Max, MODO, and Cinema 4D. It is workflow-oriented rather than a claim that those applications cannot reproduce a result; V2's advantage is the focused combination of these controls in one Blender-native, ordered cage workflow.
 
 ## Legacy modifier workflow
 

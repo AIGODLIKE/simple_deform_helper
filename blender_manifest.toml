@@ -18,6 +18,8 @@ paths_exclude_pattern = [
     "/tests/",
     "/README.md",
     "/README.en.md",
+    "/README.ja_JP.md",
+    "/README.ko_KR.md",
     "/README.zh_HANS.md",
     "/RELEASE_NOTES.md",
     "/src/image/",
