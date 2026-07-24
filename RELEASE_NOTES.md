@@ -7,14 +7,16 @@
 - Added chained-cage workflows with segment subdivision, seam reconnection, gaps, batch editing, and optional shared seam-end scaling.
 - Added independent top/bottom length, scale, and offset controls with object-bound limits.
 - Added six-face Bend Trend selection, shape-specific controllers, hover tooltips, and a dedicated Simple Deformer V2 N-panel.
-- Added a multilingual workflow comparison graphic covering Maya, 3ds Max, MODO, and Cinema 4D at `docs/simple_deform_helper_v2_comparison.svg`.
+- Added separate English, Simplified Chinese, Japanese, and Korean workflow overview and comparison SVGs under `docs/`, with each README selecting its matching language asset.
+- Fixed copied-target ownership so selecting the source does not detach its working cage stack before the copy is initialized.
+- Fixed animated independent cage parameters being overwritten by stale Geometry Nodes inputs during frame and render synchronization.
 - Release metadata, documentation, and install archive are aligned on version `2.0.0`.
 
 ## Validation
 
-- Python bytecode compilation and extension manifest validation.
-- Blender headless register/unregister smoke tests on the supported build matrix.
-- Runtime translation checks for Simplified Chinese, Japanese, Korean, and English.
+- Python bytecode compilation, translated-report contracts, and extension manifest validation.
+- Blender headless register/unregister, native multi-stage, cage, multi-layer, chained-cage, subdivision, batch-edit, animation, and installed-archive lifecycle regressions.
+- Runtime translation checks for Simplified Chinese, Japanese, Korean, and English, plus XML and README-reference checks for all eight language-specific SVGs.
 
 ## 0.8.2
 
