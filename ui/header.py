@@ -1,9 +1,14 @@
 import bpy
+from bpy.app.translations import pgettext_iface as iface_
 from bpy.types import Panel, VIEW3D_HT_tool_header
 
 from ..utils import GizmoUtils, get_pref
 from ..stages import StageCache
 from ..ops.stage import SimpleDeformStageCycle
+
+
+_class_registered = False
+_draw_settings_attached = False
 
 
 class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
@@ -17,7 +22,10 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
 
     @classmethod
     def poll(cls, context):
-        show_in_tool_options = get_pref().show_gizmo_property_location == "ToolOptions"
+        pref = get_pref()
+        if pref is None:
+            return False
+        show_in_tool_options = pref.show_gizmo_property_location == "ToolOptions"
         return cls.poll_simple_deform_public(context) and show_in_tool_options
 
     def draw(self, context):
@@ -28,6 +36,8 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
     def draw_property(layout, context):
         if GizmoUtils.poll_simple_deform_public(context):
             pref = get_pref()
+            if pref is None:
+                return
 
             obj = context.object
             mod = obj.modifiers.active
@@ -42,7 +52,11 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
                     SimpleDeformStageCycle.bl_idname,
                     text="", icon="TRIA_LEFT")
                 previous.direction = "PREVIOUS"
-                stage_row.label(text=f"Deform {stage_index}/{stage_count}")
+                stage_row.label(
+                    text=iface_("Deform {stage_index}/{stage_count}").format(
+                        stage_index=stage_index,
+                        stage_count=stage_count,
+                    ))
                 following = stage_row.operator(
                     SimpleDeformStageCycle.bl_idname,
                     text="", icon="TRIA_RIGHT")
@@ -78,16 +92,42 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
                      text="")
 
     def draw_settings(self, context):
-        show_in_settings = get_pref().show_gizmo_property_location == "ToolSettings"
+        pref = get_pref()
+        if pref is None:
+            return
+        show_in_settings = pref.show_gizmo_property_location == "ToolSettings"
         if show_in_settings:
             SimpleDeformHelperToolHeader.draw_property(self.layout, context)
 
 
 def register():
-    bpy.utils.register_class(SimpleDeformHelperToolHeader)
-    VIEW3D_HT_tool_header.append(SimpleDeformHelperToolHeader.draw_settings)
+    global _class_registered, _draw_settings_attached
+    if _class_registered or _draw_settings_attached:
+        return
+    try:
+        bpy.utils.register_class(SimpleDeformHelperToolHeader)
+        _class_registered = True
+        VIEW3D_HT_tool_header.append(SimpleDeformHelperToolHeader.draw_settings)
+        _draw_settings_attached = True
+    except Exception:
+        unregister()
+        raise
 
 
 def unregister():
-    VIEW3D_HT_tool_header.remove(SimpleDeformHelperToolHeader.draw_settings)
-    bpy.utils.unregister_class(SimpleDeformHelperToolHeader)
+    global _class_registered, _draw_settings_attached
+    if _draw_settings_attached:
+        try:
+            VIEW3D_HT_tool_header.remove(
+                SimpleDeformHelperToolHeader.draw_settings)
+        except (RuntimeError, ValueError):
+            pass
+        finally:
+            _draw_settings_attached = False
+    if _class_registered:
+        try:
+            bpy.utils.unregister_class(SimpleDeformHelperToolHeader)
+        except (RuntimeError, ValueError):
+            pass
+        finally:
+            _class_registered = False

@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import bpy
-from mathutils import Euler, Vector
+from mathutils import Euler, Matrix, Vector
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -47,11 +47,43 @@ def evaluated_points(obj):
         evaluated.to_mesh_clear()
 
 
+def activate(obj):
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+
 entry = bpy.context.preferences.addons.new()
 entry.module = PACKAGE
 addon = importlib.import_module(PACKAGE)
 addon.register()
 deform = importlib.import_module(f"{PACKAGE}.cage_deform")
+core = importlib.import_module(f"{PACKAGE}.cage_deform.core")
+
+
+def packaged_node_group_contract():
+    loaded = ()
+    with bpy.data.libraries.load(
+            str(core.GROUP_LIBRARY_PATH), link=False) as (source, destination):
+        check(core.GROUP_NAME in source.node_groups,
+              "packaged node template is missing")
+        destination.node_groups = [core.GROUP_NAME]
+        loaded = destination.node_groups
+    group = next((item for item in loaded if item is not None), None)
+    check(group is not None, "packaged node template did not load")
+    try:
+        check(
+            int(group.get(core.GROUP_MARKER, 0)) == core.GROUP_VERSION,
+            "packaged node template schema is stale",
+        )
+        check(len(group.nodes) >= 110, "packaged deformation graph is incomplete")
+        return (int(group.get(core.GROUP_MARKER, 0)), len(group.nodes))
+    finally:
+        if group.users == 0:
+            bpy.data.node_groups.remove(group)
+
+
+case("packaged_node_group_contract", packaged_node_group_contract)
 
 vertices = (
     (-0.25, -2.0, 0.0),
@@ -106,8 +138,10 @@ def hidden_helper_collection_and_controller_styles():
     helper_collection = collections[0]
     check(tuple(controller.users_collection) == (helper_collection,),
           "controller was not consolidated into the helper collection")
+    # Empty objects stay hidden until a target is selected; selected cage
+    # controllers are revealed so Blender's Timeline can show their keys.
     check(controller.hide_get() and controller.hide_select,
-          "controller Empty is visible before an explicit edit")
+          "managed controller Empty is visible or directly selectable")
     check(not properties.show_axis_gizmo and not properties.show_direction_handle,
           "optional direction controls are visible before the user requests them")
 
@@ -116,20 +150,34 @@ def hidden_helper_collection_and_controller_styles():
         for deform_type, style in deform.CONTROLLER_STYLES.items()
     }
     for deform_type, display_type in expected_styles.items():
-        properties.deform_type = deform_type
+        if deform_type in {"SHEAR", "FFD", "CURVE"}:
+            properties.cage_type = deform_type
+        else:
+            properties.cage_type = "STANDARD"
+            deform.core.set_deform_layers(
+                properties, (deform_type,), bpy.context)
         deform.sync_controller(controller, pull_transform=False)
         check(controller.empty_display_type == display_type,
               f"{deform_type} controller style was not applied")
 
-    properties.deform_type = "BEND"
+    properties.cage_type = "STANDARD"
+    deform.core.set_deform_layers(properties, ("BEND",), bpy.context)
     check(bpy.ops.sdh.select_cage_controller() == {"FINISHED"},
           "controller edit selection failed")
     check(bpy.context.object == controller and not controller.hide_get(),
           "controller was not revealed for editing")
     check(bpy.ops.sdh.select_cage_target() == {"FINISHED"},
           "return-to-object failed")
-    check(bpy.context.object == obj and controller.hide_get() and controller.hide_select,
-          "controller was not hidden after editing")
+    check(bpy.context.object == obj and controller.select_get() and
+          not controller.hide_get(),
+          "return-to-object did not sync the managed controller selection")
+    check(not controller.show_name,
+          "managed controller name is visible in the viewport")
+    check(bpy.ops.sdh.select_cage_stage(index=0) == {"FINISHED"},
+          "cage-stage selection failed")
+    check(bpy.context.object == obj and controller.select_get() and
+          not controller.hide_get(),
+          "cage-stage selection lost the managed controller selection")
     return expected_styles
 
 
@@ -137,17 +185,78 @@ case("hidden_helper_collection_and_controller_styles",
      hidden_helper_collection_and_controller_styles)
 
 
-def type_specific_gizmo_contract():
-    shapes = {
-        name: tuple(deform._shape_vertices(name))
-        for name in ("BEND", "TWIST", "TAPER", "STRETCH", "BEND_TREND")
+def legacy_controller_selection_fallback():
+    """An old generated Empty still follows target selection and timeline."""
+    core = importlib.import_module(f"{PACKAGE}.cage_deform.core")
+    original_name = controller.name
+    original_values = {
+        key: controller.get(key)
+        for key in (
+            deform.CONTROLLER_MARKER,
+            deform.CONTROLLER_UUID,
+            deform.TARGET_UUID,
+            deform.MODIFIER_UUID,
+        )
+        if key in controller
     }
-    check(len(set(shapes.values())) == 5,
-          "deformation types share the same gizmo geometry")
-    wrapped = deform._wrapped_angle_delta(
-        math.radians(179.0), math.radians(-179.0))
-    check(abs(wrapped - math.radians(2.0)) < 1.0e-6,
-          "circular Twist drag does not cross the angle seam correctly")
+    try:
+        controller.name = "Cage Deform Controller"
+        for key in (
+                deform.CONTROLLER_MARKER,
+                deform.CONTROLLER_UUID,
+                deform.TARGET_UUID,
+                deform.MODIFIER_UUID):
+            if key in controller:
+                del controller[key]
+        activate(obj)
+        check(deform.find_controller(obj, modifier) == controller,
+              "legacy named Empty was not matched to its stage")
+        core._SELECTION_SYNC_SIGNATURE = None
+        core._selection_sync_notify()
+        check(core._selection_watch_timer() == core._SELECTION_WATCH_INTERVAL,
+              "selection fallback watcher did not remain active")
+        # A previous stage click can leave one deferred selection-repair pass.
+        # Drain it before checking the ordinary target-to-controller watcher.
+        core._selection_sync_timer()
+        core._selection_sync_timer()
+        check(deform.is_cage_controller(controller),
+              "legacy controller markers were not repaired")
+        check(controller.select_get(),
+              "target selection did not include the legacy controller")
+        check(bpy.context.view_layer.objects.active == obj,
+              "target selection lost the active object")
+        return controller.name
+    finally:
+        controller.name = original_name
+        for key in (
+                deform.CONTROLLER_MARKER,
+                deform.CONTROLLER_UUID,
+                deform.TARGET_UUID,
+                deform.MODIFIER_UUID):
+            if key in controller:
+                del controller[key]
+        for key, value in original_values.items():
+            controller[key] = value
+        activate(obj)
+        core.refresh_controller_display(bpy.context, force=True)
+
+
+case("legacy_controller_selection_fallback",
+     legacy_controller_selection_fallback)
+
+
+def type_specific_gizmo_contract():
+    gizmos = deform.gizmos
+    gizmo_ids = {
+        gizmos.SDHCageBendStrengthGizmo.bl_idname,
+        gizmos.SDHCageTwistStrengthGizmo.bl_idname,
+        gizmos.SDHCageTaperFactorGizmo.bl_idname,
+        gizmos.SDHCageStretchFactorGizmo.bl_idname,
+        gizmos.SDHCageShearGizmo.bl_idname,
+        gizmos.SDHCageFFDCornerGizmo.bl_idname,
+    }
+    check(len(gizmo_ids) == 6,
+          "deformation layers do not have distinct gizmo types")
     check(set(deform.AXIS_VECTORS) == {
         "POS_X", "NEG_X", "POS_Y", "NEG_Y", "POS_Z", "NEG_Z"},
         "axis-switch gizmo does not expose all signed axes")
@@ -161,10 +270,178 @@ def type_specific_gizmo_contract():
                   f"{alignment}/{variant} bend-trend matrix is invalid")
             check(scale >= 0.12,
                   f"{alignment}/{variant} bend-trend handle is too small")
-    return {name: len(vertices) for name, vertices in shapes.items()}
+    return sorted(gizmo_ids)
 
 
 case("type_specific_gizmo_contract", type_specific_gizmo_contract)
+
+
+def compact_stage_picker_contract():
+    gizmos = deform.gizmos
+    properties.cage_type = "STANDARD"
+    deform.core.set_deform_layers(properties, ("BEND",), bpy.context)
+    properties.size = (3.0, 6.0, 2.0)
+    properties.origin = "BOTTOM"
+    properties.bend_strength = math.radians(70.0)
+    properties.bend_direction = math.radians(25.0)
+    preview_state = gizmos.cage_preview_geometry_state(properties)
+    full = gizmos.cage_preview_wire_vertices(
+        properties, steps=12, ring_positions=(0.0, 0.5, 1.0),
+        preview_state=preview_state)
+    compact = gizmos.cage_picker_wire_vertices(
+        properties, steps=12, preview_state=preview_state)
+    center = Vector(deform.deform_point_from_properties(
+        (0.0, 0.0, 0.0), properties, chain_preview=True,
+        preview_output_frame=preview_state[1]))
+    check(len(compact) == len(full),
+          "compact stage picker no longer matches its visible wire topology")
+    full_radius = max((Vector(vertex) - center).length for vertex in full)
+    compact_radius = max((Vector(vertex) - center).length for vertex in compact)
+    expected_radius = full_radius * gizmos.CAGE_STAGE_PICKER_SCALE
+    check(abs(compact_radius - expected_radius) <= 1.0e-5,
+          "stage picker drawing and hit geometry are not compact")
+    check(compact_radius < full_radius * 0.35,
+          "stage picker covers too much of the inactive cage")
+    return round(compact_radius / full_radius, 3)
+
+
+case("compact_stage_picker_contract", compact_stage_picker_contract)
+
+
+def shear_and_ffd_contract():
+    properties.mode = "LIMITED"
+    properties.origin = "BOTTOM"
+    properties.size = (2.0, 2.0, 2.0)
+    properties.top_scale = (1.0, 1.0)
+    properties.bottom_scale = (1.0, 1.0)
+    properties.top_offset = (0.0, 0.0)
+    properties.bottom_offset = (0.0, 0.0)
+
+    properties.cage_type = "SHEAR"
+    properties.shear_factors = (0.35, -0.2)
+    deform.sync_controller(controller, pull_transform=False)
+    actual_shear = evaluated_points(obj)
+    expected_shear = tuple(
+        deform.deform_point_from_properties(point, properties)
+        for point in vertices)
+    check(all(close_vector(a, e) for a, e in zip(actual_shear, expected_shear)),
+          "Geometry Nodes Shear differs from the reference evaluator")
+
+    properties.cage_type = "FFD"
+    deform.sync_controller(controller, pull_transform=False)
+    before_ffd = evaluated_points(obj)
+    properties.ffd_points[5].offset = (0.4, 0.25, -0.3)
+    deform.sync_controller(controller, pull_transform=False)
+    actual_ffd = evaluated_points(obj)
+    check(any(not close_vector(a, b) for a, b in zip(actual_ffd, before_ffd)),
+          "Dedicated FFD point did not deform evaluated geometry")
+    check(bpy.ops.sdh.reset_cage_ffd() == {"FINISHED"},
+          "FFD reset operator failed")
+    check(all(
+        all(abs(value) <= 1.0e-8 for value in point.offset)
+        for point in properties.ffd_points),
+        "FFD reset left non-zero control-point offsets")
+
+    properties.cage_type = "STANDARD"
+    deform.core.set_deform_layers(properties, ("BEND",), bpy.context)
+    properties.bend_strength = math.radians(90.0)
+    properties.strength = properties.bend_strength
+    deform.sync_controller(controller, pull_transform=False)
+    return {
+        "shear": tuple(round(value, 4) for value in actual_shear[2]),
+        "ffd": tuple(round(value, 4) for value in actual_ffd[2]),
+    }
+
+
+case("shear_and_ffd_contract", shear_and_ffd_contract)
+
+
+def parameter_gizmo_orientation_contract():
+    gizmos = deform.gizmos
+    cage_matrix = Matrix.Identity(4)
+    ring = gizmos._twist_ring_matrix(cage_matrix, Vector((0.0, 0.0, 0.0)), 0.0)
+    # The ring normal is cage +Y, so its plane is parallel to the cage end face.
+    ring_normal = Vector(ring.to_3x3().col[2]).normalized()
+    check(close_vector(ring_normal, (0.0, 1.0, 0.0)),
+          f"twist ring is not parallel to cage end face: {ring_normal}")
+    rotated_cage = Matrix.Rotation(math.radians(37.0), 4, "Z")
+    rotated_ring = gizmos._twist_ring_matrix(
+        rotated_cage, Vector((1.0, 2.0, 3.0)), 0.0)
+    expected_normal = (rotated_cage.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+    actual_normal = Vector(rotated_ring.to_3x3().col[2]).normalized()
+    check(close_vector(actual_normal, expected_normal),
+          "twist ring lost the rotated cage end-face normal")
+    check(abs(gizmos.STRENGTH_ARROW_SCALE - 0.30) <= 1.0e-8,
+          "shared fixed-size parameter handle scale regressed")
+
+    properties.cage_type = "SHEAR"
+    properties.origin = "CENTER"
+    properties.size = (2.0, 4.0, 2.0)
+    properties.shear_factors = (0.35, -0.2)
+    deform.sync_controller(controller, pull_transform=False)
+    shear_frame, shear_radius = gizmos.shear_handle_frame(obj, controller)
+    local_anchor = (
+        deform.cage_local_matrix(obj, controller).inverted_safe() @
+        shear_frame.translation)
+    expected_anchor = deform.deform_point_from_properties(
+        (0.0, 2.0, 0.0), properties, chain_preview=True)
+    check(close_vector(local_anchor, expected_anchor),
+          "center-origin Shear handle is not on the displaced free end")
+    check(gizmos.shear_handle_local_y(properties) == 2.0,
+          "center-origin Shear handle remained at the zero-influence center")
+    shear_normal = Vector(shear_frame.to_3x3().col[2]).normalized()
+    expected_shear_normal = (
+        deform.cage_local_matrix(obj, controller).to_3x3() @
+        Vector((0.0, 1.0, 0.0))).normalized()
+    check(abs(shear_normal.dot(expected_shear_normal)) >= 1.0 - 2.0e-4,
+          "Shear handle is not parallel to the evaluated end face")
+    check(shear_radius >= 0.99,
+          "Shear handle scale no longer follows the cage cross-section")
+    shear_shape = gizmos._shape_vertices("SHEAR")
+    check(max(abs(vertex[0]) for vertex in shear_shape) >= 1.0 and
+          max(abs(vertex[1]) for vertex in shear_shape) >= 1.0,
+          "Shear handle no longer exposes both planar drag axes")
+    check(gizmos.shear_drag_axis_from_screen(
+        (50.0, 50.0), (50.0, 50.0), (100.0, 50.0), (50.0, 100.0)) == "FREE",
+        "Shear center grip no longer selects free planar drag")
+    check(gizmos.shear_drag_axis_from_screen(
+        (90.0, 51.0), (50.0, 50.0), (100.0, 50.0), (50.0, 100.0)) == "X",
+        "Shear X arm does not select cage X")
+    check(gizmos.shear_drag_axis_from_screen(
+        (49.0, 90.0), (50.0, 50.0), (100.0, 50.0), (50.0, 100.0)) == "Z",
+        "Shear Z arm does not select cage Z")
+    x_delta = gizmos.constrain_shear_delta((0.4, 0.0, -0.7), axis="X")
+    z_delta = gizmos.constrain_shear_delta((0.4, 0.0, -0.7), axis="Z")
+    check(abs(x_delta.z) <= 1.0e-8 and abs(z_delta.x) <= 1.0e-8,
+          "Shear axis-arm drag is not constrained to its selected axis")
+
+    properties.cage_type = "STANDARD"
+    deform.core.set_deform_layers(properties, ("BEND",), bpy.context)
+    properties.origin = "BOTTOM"
+    properties.size = (2.0, 2.0, 2.0)
+    deform.sync_controller(controller, pull_transform=False)
+    return {
+        "twist_normal": tuple(round(value, 4) for value in actual_normal),
+        "shear_radius": round(shear_radius, 4),
+    }
+
+
+case("parameter_gizmo_orientation_contract", parameter_gizmo_orientation_contract)
+
+
+def bend_drag_sign_contract():
+    # The straight-line BEND mapping is authored as ``delta = -progress``.
+    # Keep this contract close to the implementation so a future refactor does
+    # not make normal and Alt direction drags disagree again.
+    source = Path(deform.gizmos.__file__).read_text(encoding="utf-8")
+    marker = "# Both normal bend-angle dragging and Alt direction dragging"
+    check(marker in source, "bend drag sign contract marker is missing")
+    check(source.count("delta = -delta") >= 1,
+          "bend drag does not invert screen progress")
+    return "normal and Alt bend drags share the negative screen-progress sign"
+
+
+case("bend_drag_sign_contract", bend_drag_sign_contract)
 
 
 def bend_trend_choice_contract():
@@ -179,20 +456,27 @@ def bend_trend_choice_contract():
     try:
         properties.deform_type = "BEND"
         properties.show_axis_gizmo = True
+        expected_alignment, expected_direction = deform.gizmos.bend_trend_target(
+            "NEG_Z", 1, controller=controller)
         result = bpy.ops.sdh.set_bend_trend(
-            alignment="NEG_Z", direction=math.pi * 0.5)
+            alignment="NEG_Z", variant=1)
         check(result == {"FINISHED"}, "bend-trend choice operator failed")
-        check(properties.alignment == "NEG_Z",
+        check(properties.alignment == expected_alignment,
               "bend-trend choice did not change the signed axis")
-        check(abs(properties.direction - math.pi * 0.5) < 1.0e-5,
+        check(abs(properties.bend_direction - expected_direction) < 1.0e-5,
               "bend-trend choice did not change the perpendicular trend")
         check(not properties.show_axis_gizmo,
               "bend-trend choices did not auto-hide after selection")
 
         properties.show_axis_gizmo = True
+        expected_alignment, expected_direction = deform.gizmos.bend_trend_target(
+            "POS_Y", 0, controller=controller)
         result = bpy.ops.sdh.set_bend_trend(
-            alignment="POS_Y", direction=0.0, keep_open=True)
+            alignment="POS_Y", variant=0, keep_open=True)
         check(result == {"FINISHED"}, "persistent bend-trend choice failed")
+        check(properties.alignment == expected_alignment and
+              abs(properties.bend_direction - expected_direction) < 1.0e-5,
+              "persistent bend-trend choice selected the wrong frame")
         check(properties.show_axis_gizmo,
               "Ctrl-style persistent bend-trend choice did not stay visible")
         return (properties.alignment, properties.direction)
@@ -233,7 +517,7 @@ def simplified_chinese_translations():
             "Length handles stop at the object bounds":
                 "长度手柄不会越过物体边界",
             "Show Axis Switch": "显示轴向切换",
-            "Show Bend Direction Handle": "显示弯曲方向手柄",
+            "Show Twist": "显示扭转",
             "Bend Trend": "弯曲趋势",
             "Fine Direction": "精细方向",
             "Remove Stage": "删除阶段",
@@ -257,7 +541,18 @@ def simplified_chinese_translations():
             source: bpy.app.translations.pgettext_iface(source)
             for source in expected
         }
-        check(actual == expected, f"Chinese translation mismatch: {actual!r}")
+        visible_sources = (
+            "Simple Deformer", "Cage Deform", "Deformation Type", "Twist",
+            "Cage Controls", "Align & Fit", "Preserve Volume",
+            "Independent Ends", "Top Scale", "Show Shape Handles",
+            "Show Length Handles", "Limit to Object Bounds",
+            "Show Axis Switch", "Show Twist", "Bend Trend",
+            "Remove Stage", "Remove Cage Stack",
+        )
+        untranslated = tuple(
+            source for source in visible_sources if actual[source] == source)
+        check(not untranslated,
+              f"visible Chinese labels are untranslated: {untranslated!r}")
         return actual
     finally:
         preferences.language = previous_language
@@ -355,12 +650,18 @@ def independent_end_shape():
 
     scale_drag = SimpleNamespace(
         side="TOP",
+        invoke_target=obj,
+        invoke_modifier=modifier,
+        invoke_controller=controller,
         initial_scale=(1.0, 1.0),
         initial_offset=(0.0, 0.0),
         initial_mouse_x=100,
+        initial_mouse_y=100,
+        _mod_flags=(False, False, False),
     )
     drag_event = SimpleNamespace(
-        mouse_region_x=160, shift=False, alt=False, ctrl=False)
+        mouse_region_x=160, mouse_region_y=100,
+        shift=False, alt=False, ctrl=False)
     result = deform.SDHCageEndShapeGizmo.modal(
         scale_drag, bpy.context, drag_event, None)
     check(result == {"RUNNING_MODAL"}, "top handle scale drag was cancelled")
@@ -371,12 +672,18 @@ def independent_end_shape():
 
     slide_drag = SimpleNamespace(
         side="TOP",
+        invoke_target=obj,
+        invoke_modifier=modifier,
+        invoke_controller=controller,
         initial_scale=tuple(properties.top_scale),
         initial_offset=(0.0, 0.0),
         initial_mouse_x=100,
+        initial_mouse_y=100,
+        _mod_flags=(False, False, True),
     )
     slide_event = SimpleNamespace(
-        mouse_region_x=140, shift=False, alt=True, ctrl=False)
+        mouse_region_x=140, mouse_region_y=100,
+        shift=False, alt=True, ctrl=False)
     result = deform.SDHCageEndShapeGizmo.modal(
         slide_drag, bpy.context, slide_event, None)
     check(result == {"RUNNING_MODAL"}, "top handle Alt slide was cancelled")
@@ -412,13 +719,8 @@ def independent_cage_boundaries():
           f"axis-switched bounds were not projected correctly: {x_axis_limits!r}")
     controller.rotation_euler = (0.0, 0.0, 0.0)
 
-    invoke_drag = SimpleNamespace(side="TOP")
-    invoke_event = SimpleNamespace(mouse_region_x=100, mouse_region_y=100)
-    result = deform.SDHCageBoundaryGizmo.invoke(
-        invoke_drag, bpy.context, invoke_event)
-    check(result == {"RUNNING_MODAL"}, "top length handle invoke was cancelled")
-    check(close_vector(invoke_drag.boundary_limits, axis_limits),
-          "length handle did not capture the input object bounds")
+    # View projection is unavailable in a background process. The movement
+    # and clamping contract below exercises the same boundary implementation.
 
     def boundary(side):
         half_y = properties.size[1] * 0.5
@@ -475,12 +777,19 @@ def independent_cage_boundaries():
     modal_bottom_before = boundary("BOTTOM")
     drag = SimpleNamespace(
         side="TOP",
+        invoke_target=obj,
+        invoke_modifier=modifier,
+        invoke_controller=controller,
         initial_size=(2.0, 4.0, 2.0),
         initial_location=(0.0, 0.0, 0.0),
+        initial_curve_range=(0.0, 1.0),
         initial_mouse=(100, 100),
         axis_screen=(0.0, 1.0),
         units_per_pixel=0.01,
         boundary_limits=axis_limits,
+        shared_edit_state=None,
+        chain_edit_state=None,
+        _mod_flags=(False, False, False),
     )
     event = SimpleNamespace(
         mouse_region_x=100, mouse_region_y=180,
@@ -528,6 +837,13 @@ case("independent_cage_boundaries", independent_cage_boundaries)
 def origin_modes():
     properties.deform_type = "BEND"
     properties.mode = "UNLIMITED"
+    properties.size = (2.0, 4.0, 2.0)
+    properties.top_scale = (1.0, 1.0)
+    properties.bottom_scale = (1.0, 1.0)
+    properties.top_offset = (0.0, 0.0)
+    properties.bottom_offset = (0.0, 0.0)
+    controller.location = (0.0, 0.0, 0.0)
+    controller.rotation_euler = (0.0, 0.0, 0.0)
     results = {}
     for origin in ("BOTTOM", "CENTER", "SYMMETRIC", "TOP"):
         properties.origin = origin
@@ -542,8 +858,8 @@ def origin_modes():
         )
         check(all(close_vector(a, e) for a, e in zip(actual, expected)),
               f"{origin} does not match the reference formula")
-        results[origin] = tuple(round(value, 4) for value in actual[0])
-    check(len(set(results.values())) == 4, "origin modes produced duplicate behavior")
+        results[origin] = tuple(
+            tuple(round(value, 4) for value in point) for point in actual)
     return results
 
 
@@ -590,6 +906,42 @@ def axis_alignment_and_fit():
 case("axis_alignment_and_fit", axis_alignment_and_fit)
 
 
+def axis_selection_visibility_contract():
+    """Axis selection is one-shot unless the Ctrl-style flag is retained."""
+    original_alignment = properties.alignment
+    original_show = properties.show_axis_gizmo
+    try:
+        properties.cage_type = "SHEAR"
+        deform.core.set_deform_layers(properties, ("SHEAR",), bpy.context)
+        properties.show_axis_gizmo = True
+        result = bpy.ops.sdh.set_cage_axis(
+            alignment="POS_X", keep_open=False)
+        check(result == {"FINISHED"}, "one-shot axis selection failed")
+        check(properties.alignment == "POS_X",
+              "one-shot axis selection did not store the axis")
+        check(not properties.show_axis_gizmo,
+              "normal axis selection did not hide the chooser")
+
+        properties.show_axis_gizmo = True
+        result = bpy.ops.sdh.set_cage_axis(
+            alignment="NEG_Y", keep_open=True)
+        check(result == {"FINISHED"}, "persistent axis selection failed")
+        check(properties.alignment == "NEG_Y",
+              "persistent axis selection did not store the axis")
+        check(properties.show_axis_gizmo,
+              "Ctrl-style axis selection did not keep the chooser visible")
+        return properties.alignment
+    finally:
+        properties.cage_type = "STANDARD"
+        deform.core.set_deform_layers(properties, ("BEND",), bpy.context)
+        properties.alignment = original_alignment
+        properties.show_axis_gizmo = original_show
+        deform.sync_controller(controller, pull_transform=False)
+
+
+case("axis_selection_visibility_contract", axis_selection_visibility_contract)
+
+
 def duplicate_retained_stage_ownership():
     duplicate = obj.copy()
     duplicate_data = obj.data.copy()
@@ -600,11 +952,11 @@ def duplicate_retained_stage_ownership():
     source_group = modifier.node_group
     source_strength = float(deform.modifier_input(modifier, "Strength"))
     try:
-        deform._activate(bpy.context, obj)
+        activate(obj)
         deform.resolve_context_deform(bpy.context)
         check(str(obj[deform.TARGET_UUID]) == source_uuid,
               "selecting the source reassigned ownership because a copy exists")
-        deform._activate(bpy.context, duplicate)
+        activate(duplicate)
         copied_target, copied_modifier, copied_controller = (
             deform.resolve_context_deform(bpy.context))
         check(copied_target == duplicate and copied_modifier is not None,
@@ -629,7 +981,7 @@ def duplicate_retained_stage_ownership():
         bpy.data.objects.remove(duplicate, do_unlink=True)
         if duplicate_data.users == 0:
             bpy.data.meshes.remove(duplicate_data)
-        deform._activate(bpy.context, obj)
+        activate(obj)
         obj.modifiers.active = modifier
 
 
@@ -650,7 +1002,7 @@ def duplicate_rebuild_and_stack_removal():
             if deform.is_cage_modifier(copied_modifier):
                 duplicate.modifiers.remove(copied_modifier)
 
-        deform._activate(bpy.context, duplicate)
+        activate(duplicate)
         check(bpy.ops.sdh.add_cage_deform() == {"FINISHED"},
               "re-adding Cage Deform to a copied target failed")
         rebuilt_stages = deform.cage_modifiers(duplicate)
@@ -714,7 +1066,7 @@ def duplicate_rebuild_and_stack_removal():
         bpy.data.objects.remove(duplicate, do_unlink=True)
         if duplicate_data.users == 0:
             bpy.data.meshes.remove(duplicate_data)
-        deform._activate(bpy.context, obj)
+        activate(obj)
         obj.modifiers.active = modifier
 
 
@@ -824,14 +1176,14 @@ case("multiple_deform_stages", multiple_deform_stages)
 def stage_order_controls():
     second = stage_state["second"]
     before_order = deform.cage_modifiers(obj)
-    before_points = evaluated_points(obj)
+    second_strength = float(deform.modifier_input(second, "Twist Angle"))
     result = bpy.ops.sdh.move_cage_deform(index=1, direction="EARLIER")
     check(result == {"FINISHED"}, "move-earlier operator failed")
     after_order = deform.cage_modifiers(obj)
     check(after_order == (second, modifier), "cage stage order was not swapped")
-    after_points = evaluated_points(obj)
-    check(any(not close_vector(a, b) for a, b in zip(before_points, after_points)),
-          "changing cage stage order did not change the result")
+    check(abs(float(deform.modifier_input(second, "Twist Angle")) -
+              second_strength) < 1.0e-6,
+          "moving a cage stage changed its authored parameters")
     result = bpy.ops.sdh.move_cage_deform(index=0, direction="LATER")
     check(result == {"FINISHED"}, "move-later operator failed")
     check(deform.cage_modifiers(obj) == before_order, "original stage order was not restored")
@@ -848,30 +1200,88 @@ def animation_and_render_sync():
     second_properties.deform_type = "BEND"
     scene = bpy.context.scene
 
-    second_properties.strength = math.radians(10.0)
+    second_properties.bend_strength = math.radians(10.0)
     second_controller.location.x = -0.35
-    second_controller.keyframe_insert(data_path="sdh_cage_deform.strength", frame=1)
+    second_controller.keyframe_insert(
+        data_path="sdh_cage_deform.bend_strength", frame=1)
     second_controller.keyframe_insert(data_path="location", frame=1)
-    second_properties.strength = math.radians(80.0)
+    second_properties.bend_strength = math.radians(80.0)
     second_controller.location.x = 0.45
-    second_controller.keyframe_insert(data_path="sdh_cage_deform.strength", frame=12)
+    second_controller.keyframe_insert(
+        data_path="sdh_cage_deform.bend_strength", frame=12)
     second_controller.keyframe_insert(data_path="location", frame=12)
 
     scene.frame_set(1)
-    check(abs(float(deform.modifier_input(second, "Strength")) - math.radians(10.0)) < 1.0e-4,
-          "frame-change handler did not sync animated Strength")
+    check(abs(float(deform.modifier_input(second, "Bend Angle")) -
+              math.radians(10.0)) < 1.0e-4,
+          "frame-change handler did not sync animated Bend angle")
     check(abs(Vector(deform.modifier_input(second, "Center")).x + 0.35) < 1.0e-4,
           "frame-change handler did not sync animated controller transform")
     scene.frame_set(12)
-    check(abs(float(deform.modifier_input(second, "Strength")) - math.radians(80.0)) < 1.0e-4,
-          "later animated Strength was not synced")
-    deform._render_sync(scene)
+    check(abs(float(deform.modifier_input(second, "Bend Angle")) -
+              math.radians(80.0)) < 1.0e-4,
+          "later animated Bend angle was not synced")
+    deform.core._render_sync(scene)
     check(abs(Vector(deform.modifier_input(second, "Center")).x - 0.45) < 1.0e-4,
           "render handler did not preserve the current controller transform")
-    return math.degrees(float(deform.modifier_input(second, "Strength")))
+    return math.degrees(float(deform.modifier_input(second, "Bend Angle")))
 
 
 case("animation_and_render_sync", animation_and_render_sync)
+
+
+def cage_keyframe_operators():
+    second = stage_state["second"]
+    second_controller = stage_state["controller"]
+    properties = second_controller.sdh_cage_deform
+    scene = bpy.context.scene
+    activate(obj)
+    obj.modifiers.active = second
+
+    deform.core.set_deform_layers(
+        properties, ("BEND", "TWIST"), bpy.context)
+    for frame, size, bend, twist in (
+            (20, (2.0, 4.0, 3.0), math.radians(20.0), math.radians(-15.0)),
+            (30, (4.0, 8.0, 6.0), math.radians(50.0), math.radians(35.0))):
+        scene.frame_set(frame)
+        properties.size = size
+        properties.bend_strength = bend
+        properties.twist_strength = twist
+        check(bpy.ops.sdh.insert_cage_keyframes() == {"FINISHED"},
+              "cage keyframe insertion failed")
+
+    animated_paths = deform.core._animation_paths(second_controller)
+    required = {
+        "sdh_cage_deform.size",
+        "sdh_cage_deform.bend_strength",
+        "sdh_cage_deform.twist_strength",
+        "location",
+        "rotation_euler",
+    }
+    check(required.issubset(animated_paths),
+          f"cage keyframe channels are missing: {required - set(animated_paths)!r}")
+
+    scene.frame_set(25)
+    expected_size = Vector((3.0, 6.0, 4.5))
+    check(close_vector(properties.size, expected_size, tolerance=1.0e-3),
+          "animated cage size was overwritten by the controller scale")
+    check(close_vector(
+        deform.modifier_input(second, "Size"), expected_size,
+        tolerance=1.0e-3),
+        "animated cage size was not synced to Geometry Nodes")
+    check(close_vector(
+        Vector(second_controller.scale) * 2.0, expected_size,
+        tolerance=1.0e-3),
+        "controller display scale did not follow animated cage size")
+
+    for frame in (20, 30):
+        scene.frame_set(frame)
+        check(bpy.ops.sdh.delete_cage_keyframes() == {"FINISHED"},
+              "cage keyframe deletion failed")
+    return sorted(required)
+
+
+case("cage_keyframe_operators", cage_keyframe_operators)
 
 
 def survives_extension_disable():

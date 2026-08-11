@@ -1,20 +1,22 @@
 schema_version = "1.0.0"
 
-blender_version_min = "4.2.0"
+blender_version_min = "5.0.0"
 id = "simple_deform_helper"
 license = ["SPDX:GPL-3.0-or-later", ]
-maintainer = "AIGODLIKE Community(小萌新)"
-name = "Simple Deform Helper V2"
-tagline = "World-leading non-destructive cage deformation controls"
+maintainer = "ACGGIT"
+name = "Simple Deform Helper"
+tagline = "Direct controls for layered and free-form cage deformation"
 type = "add-on"
-version = "2.0.0"
-tags = ["3D View", "Object", "Mesh"]
+version = "2.7.48"
+website = "https://github.com/AIGODLIKE/simple_deform_helper"
+tags = ["3D View", "Modeling"]
 
 [build]
 paths_exclude_pattern = [
     "__pycache__/",
     ".*",
     "*.zip",
+    "*.blend1",
     "/tests/",
     "/README.md",
     "/README.en.md",
@@ -24,4 +26,8 @@ paths_exclude_pattern = [
     "/RELEASE_NOTES.md",
     "/src/image/",
     "/docs/",
+    "/outputs/",
+    "/validation_runtime/",
+    "/audit/",
+    "/matrix_*.json",
 ]

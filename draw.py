@@ -1,12 +1,86 @@
 import blf
+import logging
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector, Matrix
 
-from .update import ChangeActiveObject, simple_update
 from .utils import GizmoUtils
 from .stages import StageCache
+
+
+_CAGE_DEFORM_ORDER = ("BEND", "TWIST", "TAPER", "STRETCH")
+_LOGGER = logging.getLogger(__name__)
+
+
+def _cage_deform_types(properties):
+    legacy_type = getattr(properties, "deform_type", "BEND")
+    try:
+        present = set(getattr(properties, "deform_types"))
+    except (AttributeError, TypeError, ValueError):
+        present = {legacy_type}
+    try:
+        muted = set(getattr(properties, "muted_deform_types"))
+    except (AttributeError, TypeError, ValueError):
+        muted = set()
+    return present.difference(muted).intersection(_CAGE_DEFORM_ORDER)
+
+
+def _depth_cued_line_colors(
+        positions, indices, view_matrix, color, far_strength=0.22):
+    """Fade far cage segments while retaining their X-ray readability."""
+    positions = tuple(positions)
+    indices = tuple(indices)
+    color = tuple(float(component) for component in color)
+    if len(color) != 4 or not positions:
+        return tuple(color for _position in positions)
+    try:
+        depths = tuple(
+            float((view_matrix @ (
+                (Vector(positions[first]) + Vector(positions[second])) * 0.5
+            ))[2])
+            for first, second in indices
+        )
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return tuple(color for _position in positions)
+    if not depths:
+        return tuple(color for _position in positions)
+    minimum = min(depths)
+    span = max(depths) - minimum
+    if span <= 1.0e-7:
+        return tuple(color for _position in positions)
+
+    far_strength = min(max(float(far_strength), 0.0), 1.0)
+    colors = [color for _position in positions]
+    for (first, second), depth in zip(indices, depths):
+        depth_factor = (depth - minimum) / span
+        alpha = color[3] * (
+            far_strength + (1.0 - far_strength) * depth_factor)
+        segment_color = (color[0], color[1], color[2], alpha)
+        colors[first] = segment_color
+        colors[second] = segment_color
+    return tuple(colors)
+
+
+def _curve_cage_layer_positions(
+        station_factors, range_start, range_end, epsilon=1.0e-5):
+    """Separate stable structural rings from movable effect-range caps."""
+    structural = tuple(sorted(set((
+        0.0,
+        1.0,
+        *(min(max(float(factor), 0.0), 1.0)
+          for factor in station_factors),
+    ))))
+    range_start = min(max(float(range_start), 0.0), 1.0)
+    range_end = min(max(float(range_end), 0.0), 1.0)
+    if range_start > range_end:
+        range_start, range_end = range_end, range_start
+    caps = []
+    if range_start > epsilon:
+        caps.append(("BOTTOM", range_start))
+    if range_end < 1.0 - epsilon:
+        caps.append(("TOP", range_end))
+    return structural, tuple(caps)
 
 
 class DrawPublic(GizmoUtils):
@@ -38,10 +112,15 @@ class DrawPublic(GizmoUtils):
 
     @classmethod
     def draw_smooth_3d_shader(cls, pos, indices, color):
+        cls.draw_smooth_3d_shader_colors(
+            pos, indices, [color for _ in pos])
+
+    @classmethod
+    def draw_smooth_3d_shader_colors(cls, pos, indices, colors):
         shader = cls.get_shader("POLYLINE_SMOOTH_COLOR")
         batch = batch_for_shader(
             shader, "LINES",
-            {"pos": pos, "color": [color for _ in pos]},
+            {"pos": pos, "color": colors},
             indices=indices,
         )
         batch.draw(shader)
@@ -53,11 +132,32 @@ class DrawPublic(GizmoUtils):
             bpy.context, fallback=False)
         if target and modifier and controller and modifier.show_viewport:
             return True
-        if simple_update.timers_update_poll():
-            is_switch_obj = ChangeActiveObject.is_change_active_object(False)
-            if self.poll_simple_deform_public(bpy.context) and not is_switch_obj:
-                return True
-        return False
+        return self.poll_simple_deform_public(bpy.context)
+
+    def refresh_legacy_wireframe_preview(self):
+        """Refresh the optional legacy preview only after its input changed."""
+        if not self.pref.update_deform_wireframe:
+            return
+        if not self.active_modifier_is_simple_deform:
+            return
+        data = self.G_DeformDrawData.get("simple_deform_bound_data")
+        try:
+            context_changed = not self.preview_data_matches_context(data)
+            stale = (
+                context_changed or
+                data.get("signature") != self.preview_signature()
+            )
+        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+            context_changed = True
+            stale = True
+        if not stale:
+            return
+        # Only a new object/modifier needs the expensive stage evaluator.
+        # Parameter drags reuse the cached input bounds and let the preview's
+        # own FPS limiter decide when to replace the last complete frame.
+        if context_changed and not self.update_multiple_modifiers_data():
+            return
+        self.update_deform_wireframe(force=context_changed)
 
 
 class DrawText(DrawPublic):
@@ -85,6 +185,15 @@ class DrawText(DrawPublic):
     @classmethod
     def obj_is_scale(cls) -> bool:
         ob = bpy.context.object
+        try:
+            from .cage_deform import resolve_context_deform
+            target, modifier, controller = resolve_context_deform(
+                bpy.context, fallback=False)
+            if target and modifier and controller:
+                ob = target
+        except (ImportError, AttributeError, ReferenceError, RuntimeError,
+                TypeError, ValueError):
+            pass
         scale_error = ob and (ob.scale != Vector((1, 1, 1)))
         return scale_error
 
@@ -157,7 +266,7 @@ class Draw3D(DrawHandler):
         except (ReferenceError, RuntimeError, AttributeError, TypeError, ValueError) as exc:
             message = f"{type(exc).__name__}: {exc}"
             if self.G_HandleData.get("draw_error") != message:
-                print("Simple Deform Helper draw:", message)
+                _LOGGER.debug("Simple Deform Helper draw: %s", message)
                 self.G_HandleData["draw_error"] = message
         finally:
             gpu.state.line_width_set(1)
@@ -173,6 +282,7 @@ class Draw3D(DrawHandler):
             # draw bound box
             self.draw_other_stage_bounds()
             self.draw_bound_box()
+            self.refresh_legacy_wireframe_preview()
             self.draw_deform_mesh()
             self.draw_limits_line()
             self.draw_limits_bound_box()
@@ -181,119 +291,301 @@ class Draw3D(DrawHandler):
         elif self.poll_simple_deform_show_bend_axis_witch(context):
             self.draw_bound_box()
 
+    def _draw_other_cage_previews(
+            self, context, target, active_modifier, active_controller):
+        """Draw dimmed, selectable previews for the other managed cages.
+
+        The active stage keeps the detailed cage below. Standard and Shear
+        stages use a lightweight rail/ring preview, while FFD stages retain
+        their complete lattice grid so neighboring chain segments remain
+        visually continuous and distinguishable after switching stages.
+        """
+        from .cage_deform import cage_local_matrix
+        from .cage_deform.core import (
+            CONTROLLER_STYLES,
+            cage_modifiers,
+            find_controller,
+            ordered_deform_types,
+        )
+        from .cage_deform.gizmos import (
+            cage_preview_wire_indices,
+            cage_preview_wire_vertices,
+            ffd_wire_geometry,
+        )
+        active_properties = getattr(
+            active_controller, "sdh_cage_deform", None)
+        if not getattr(active_properties, "show_other_cages", True):
+            return
+
+        # Keep inactive previews deliberately quieter than the active cage.
+        # The RGB values still follow each operation's controller type color.
+        preview_alpha = 0.19
+        ring_alpha = 0.12
+        steps = 12
+        ring_positions = (0.0, 0.5, 1.0)
+        rail_indices, ring_indices = cage_preview_wire_indices(
+            steps=steps, ring_positions=ring_positions)
+
+        rail_positions = []
+        rail_colors = []
+        rail_segments = []
+        ring_positions_world = []
+        ring_colors = []
+        ring_segments = []
+
+        def extend_geometry(
+                positions, colors, segments, vertices, indices, color):
+            offset = len(positions)
+            positions.extend(vertices)
+            colors.extend(color for _vertex in vertices)
+            segments.extend(
+                (offset + first, offset + second)
+                for first, second in indices)
+
+        for stage_modifier in cage_modifiers(target):
+            if stage_modifier == active_modifier or not stage_modifier.show_viewport:
+                continue
+            stage_controller = find_controller(target, stage_modifier)
+            if stage_controller is None:
+                continue
+            properties = getattr(stage_controller, "sdh_cage_deform", None)
+            if properties is None or not properties.show_cage:
+                continue
+
+            active_types = _cage_deform_types(properties)
+            ordered_types = tuple(
+                name for name in ordered_deform_types(properties)
+                if name in active_types)
+            primary_type = (
+                ordered_types[0] if ordered_types else
+                getattr(properties, "deform_type", "BEND")
+            )
+            style = CONTROLLER_STYLES.get(
+                primary_type,
+                CONTROLLER_STYLES["BEND"],
+            )
+            rgb = style[1][:3]
+            matrix = cage_local_matrix(target, stage_controller)
+            if str(getattr(properties, "cage_type", "STANDARD")) == "FFD":
+                wire_local, wire_indices = ffd_wire_geometry(
+                    properties, effective=True)
+                wire = self.matrix_calculation(matrix, wire_local)
+                extend_geometry(
+                    rail_positions, rail_colors, rail_segments,
+                    wire, wire_indices, (*rgb, preview_alpha))
+                continue
+            wire_local = cage_preview_wire_vertices(
+                properties, steps=steps, ring_positions=ring_positions)
+            wire = self.matrix_calculation(matrix, wire_local)
+            extend_geometry(
+                rail_positions, rail_colors, rail_segments,
+                wire, rail_indices, (*rgb, preview_alpha))
+            extend_geometry(
+                ring_positions_world, ring_colors, ring_segments,
+                wire, ring_indices, (*rgb, ring_alpha))
+
+        if rail_positions:
+            self.draw_smooth_3d_shader_colors(
+                rail_positions, rail_segments, rail_colors)
+        if ring_positions_world:
+            self.draw_smooth_3d_shader_colors(
+                ring_positions_world, ring_segments, ring_colors)
+
     def draw_cage_deform(self, context):
         from .cage_deform import (
             cage_boundary_points_local,
             cage_local_matrix,
-            deform_point_local,
+            curve_effect_range,
             resolve_context_deform,
         )
+        from .cage_deform.gizmos import (
+            cage_preview_guide_geometry,
+            cage_preview_geometry_state,
+            cage_preview_ring_vertices,
+            cage_preview_wire_indices,
+            cage_preview_wire_vertices,
+            ffd_wire_geometry,
+        )
+        from .cage_deform.viewport import cage_overlay_depth_test
         target, modifier, controller = resolve_context_deform(
             context, fallback=False)
         if not target or not modifier or not controller:
             return False
         properties = controller.sdh_cage_deform
+        enabled_types = _cage_deform_types(properties)
         if not properties.show_cage:
+            # ``Show Cage`` controls the active editing preview.  Keep the
+            # optional stack overview available so users can still locate and
+            # switch to another stage when the active one is muted.
+            gpu.state.line_width_set(1.5)
+            gpu.state.blend_set("ALPHA")
+            gpu.state.depth_test_set(cage_overlay_depth_test())
+            self._draw_other_cage_previews(
+                context, target, modifier, controller)
+            self._shader_set_prop_()
             return True
 
-        # The cage is an editing control rather than a surface preview, so it
-        # remains readable through the deformed object.
+        bend_trend_mode = (
+            properties.show_axis_gizmo and "BEND" in enabled_types)
+
+        # Cage previews share the traditional In Front preference. When users
+        # disable it, the controlled object naturally occludes them.
         gpu.state.line_width_set(2.0)
         gpu.state.blend_set("ALPHA")
-        gpu.state.depth_test_set("ALWAYS")
+        gpu.state.depth_test_set(cage_overlay_depth_test())
+
+        self._draw_other_cage_previews(
+            context, target, modifier, controller)
+
+        cage_alpha = 0.38
+        ring_alpha = 0.32
+        guide_alpha = 0.42
+        boundary_alpha = 0.55
+
         half = Vector(properties.size) * 0.5
         matrix = cage_local_matrix(target, controller)
+        cage_type = str(getattr(properties, "cage_type", "STANDARD"))
+        is_curve = cage_type == "CURVE"
+        view_matrix = getattr(
+            getattr(context, "region_data", None), "view_matrix", None)
 
-        def deformed_cage_point(point):
-            return deform_point_local(
-                point,
-                properties.size,
-                properties.deform_type,
-                properties.strength,
-                properties.factor,
-                properties.direction,
-                properties.mode,
-                properties.origin,
-                properties.preserve_volume,
-                properties.top_scale,
-                properties.bottom_scale,
-                properties.top_offset,
-                properties.bottom_offset,
+        # Trend selection and ordinary editing share this exact cached sample.
+        # The chooser therefore previews the current combined deformation and
+        # never overlays the old undeformed reference box.
+        steps = 24
+        effect_caps = ()
+        if is_curve:
+            range_start, range_end = curve_effect_range(properties)
+            ring_positions, cap_positions = _curve_cage_layer_positions(
+                (
+                    float(station.factor)
+                    for station in getattr(properties, "curve_stations", ())
+                ),
+                range_start,
+                range_end,
             )
-
-        # Draw the editable cage from the same formula as the geometry. The
-        # frame therefore shows the final bend/twist/profile instead of an
-        # undeformed reference box.
-        steps = 40
-        rail_indices = tuple((index, index + 1) for index in range(steps))
-        corner_signs = ((-1, -1), (-1, 1), (1, 1), (1, -1))
-        for x_sign, z_sign in corner_signs:
-            rail_local = [
-                deformed_cage_point((
-                    x_sign * half.x,
-                    -half.y + properties.size.y * index / steps,
-                    z_sign * half.z,
-                ))
-                for index in range(steps + 1)
-            ]
-            rail = self.matrix_calculation(matrix, rail_local)
+            cap_colors = {
+                "BOTTOM": (
+                    1.0, 0.55, 0.02, min(1.0, boundary_alpha + 0.12)),
+                "TOP": (
+                    1.0, 0.82, 0.05, min(1.0, boundary_alpha + 0.12)),
+            }
+            effect_caps = tuple(
+                (factor, cap_colors[side])
+                for side, factor in cap_positions
+            )
+        else:
+            ring_positions = (0.0, 0.25, 0.5, 0.75, 1.0)
+        preview_state = cage_preview_geometry_state(properties)
+        if cage_type == "FFD":
+            wire_local, wire_indices = ffd_wire_geometry(properties)
+            wire = self.matrix_calculation(matrix, wire_local)
+            effective_local, _effective_indices = ffd_wire_geometry(
+                properties, effective=True)
+            effective_wire = self.matrix_calculation(matrix, effective_local)
+            if any(
+                    (Vector(authored) - Vector(effective)).length > 1.0e-7
+                    for authored, effective in zip(wire, effective_wire)
+            ):
+                # Weight is a deformation mask, not a handle sensitivity.
+                # Keep the authored cage under the cursor and show the actual
+                # evaluated lattice as a quiet secondary reference.
+                self.draw_smooth_3d_shader(
+                    effective_wire, wire_indices,
+                    (1.0, 0.58, 0.18, 0.22))
             self.draw_smooth_3d_shader(
-                rail, rail_indices, (0.0, 0.72, 1.0, 0.78))
+                wire, wire_indices, (0.0, 0.72, 1.0, cage_alpha))
+        else:
+            wire_local = cage_preview_wire_vertices(
+                properties, steps=steps, ring_positions=ring_positions,
+                preview_state=preview_state)
+            rail_indices, ring_indices = cage_preview_wire_indices(
+                steps=steps, ring_positions=ring_positions)
+            wire = self.matrix_calculation(matrix, wire_local)
+            if is_curve and view_matrix is not None:
+                self.draw_smooth_3d_shader_colors(
+                    wire,
+                    rail_indices,
+                    _depth_cued_line_colors(
+                        wire, rail_indices, view_matrix,
+                        (0.0, 0.72, 1.0, cage_alpha)),
+                )
+                self.draw_smooth_3d_shader_colors(
+                    wire,
+                    ring_indices,
+                    _depth_cued_line_colors(
+                        wire, ring_indices, view_matrix,
+                        (0.0, 0.72, 1.0, ring_alpha)),
+                )
+            else:
+                self.draw_smooth_3d_shader(
+                    wire, rail_indices, (0.0, 0.72, 1.0, cage_alpha))
+                self.draw_smooth_3d_shader(
+                    wire, ring_indices, (0.0, 0.72, 1.0, ring_alpha))
 
-        ring_indices = ((0, 1), (1, 2), (2, 3), (3, 0))
-        for ring_t in (0.0, 0.25, 0.5, 0.75, 1.0):
-            ring_y = -half.y + properties.size.y * ring_t
-            ring_local = [
-                deformed_cage_point((
-                    x_sign * half.x, ring_y, z_sign * half.z))
-                for x_sign, z_sign in corner_signs
-            ]
-            ring = self.matrix_calculation(matrix, ring_local)
-            self.draw_smooth_3d_shader(
-                ring, ring_indices, (0.0, 0.72, 1.0, 0.72))
+        # Curve effect limits are not a second cage.  Draw only their two cap
+        # loops, in the same top/bottom colors as the boundary handles.  The
+        # stable full-source cage remains blue and its rails are sampled once.
+        if effect_caps:
+            gpu.state.line_width_set(2.5)
+            for factor, color in effect_caps:
+                cap_local = cage_preview_ring_vertices(
+                    properties, (factor,), preview_state=preview_state)
+                cap = self.matrix_calculation(matrix, cap_local)
+                cap_indices = tuple(
+                    (index, index + 1)
+                    for index in range(0, len(cap), 2))
+                if view_matrix is not None:
+                    self.draw_smooth_3d_shader_colors(
+                        cap,
+                        cap_indices,
+                        _depth_cued_line_colors(
+                            cap, cap_indices, view_matrix, color,
+                            far_strength=0.32),
+                    )
+                else:
+                    self.draw_smooth_3d_shader(cap, cap_indices, color)
+            gpu.state.line_width_set(2.0)
+
+        if bend_trend_mode:
+            self._shader_set_prop_()
+            return True
 
         if properties.show_boundary_handles:
             for side, color in (
-                    ("TOP", (1.0, 0.82, 0.05, 0.9)),
-                    ("BOTTOM", (1.0, 0.55, 0.02, 0.9))):
+                    ("TOP", (1.0, 0.82, 0.05, boundary_alpha)),
+                    ("BOTTOM", (1.0, 0.55, 0.02, boundary_alpha))):
                 boundary, handle = cage_boundary_points_local(properties, side)
                 connector = self.matrix_calculation(matrix, (boundary, handle))
                 self.draw_smooth_3d_shader(
                     connector, ((0, 1),), color)
 
-        if properties.deform_type == "BEND":
-            rail_offsets = ((0.0, 0.0),)
-        elif properties.deform_type in {"TWIST", "TAPER"}:
-            rail_offsets = tuple(
+        rail_offsets = []
+        if not enabled_types or enabled_types & {"BEND", "STRETCH"}:
+            rail_offsets.append((0.0, 0.0))
+        if enabled_types & {"TWIST", "TAPER"}:
+            rail_offsets.extend(
                 (x * half.x * 0.65, z * half.z * 0.65)
                 for x, z in ((-1, -1), (-1, 1), (1, -1), (1, 1))
             )
-        else:
-            rail_offsets = (
-                (0.0, 0.0),
+        if "STRETCH" in enabled_types:
+            rail_offsets.extend((
                 (half.x * 0.65, 0.0),
                 (0.0, half.z * 0.65),
-            )
+            ))
+        rail_offsets = tuple(dict.fromkeys(rail_offsets))
 
-        guide_indices = tuple((index, index + 1) for index in range(steps))
-        endpoints = []
-        for rail_x, rail_z in rail_offsets:
-            guide_local = [
-                deformed_cage_point(
-                    (
-                        rail_x,
-                        -half.y + properties.size.y * index / steps,
-                        rail_z,
-                    )
-                )
-                for index in range(steps + 1)
-            ]
-            guide = self.matrix_calculation(matrix, guide_local)
+        guide_local, guide_indices, endpoint_indices = (
+            cage_preview_guide_geometry(
+                properties, rail_offsets, steps=steps,
+                preview_state=preview_state))
+        guide = self.matrix_calculation(matrix, guide_local)
+        if guide:
             self.draw_smooth_3d_shader(
-                guide, guide_indices, (1.0, 0.28, 0.02, 0.95))
-            endpoints.append(guide[-1])
+                guide, guide_indices, (1.0, 0.28, 0.02, guide_alpha))
+        endpoints = tuple(guide[index] for index in endpoint_indices)
         self.draw_3d_shader(
-            endpoints, (), (1.0, 0.55, 0.05, 1.0),
+            endpoints, (), (1.0, 0.55, 0.05, min(1.0, guide_alpha + 0.35)),
             shader_name="UNIFORM_COLOR", draw_type="POINTS")
         self._shader_set_prop_()
         return True

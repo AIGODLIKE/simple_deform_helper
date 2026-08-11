@@ -1,6 +1,4 @@
 import math
-from time import time
-
 import bpy
 from bpy.types import Gizmo, GizmoGroup
 from bpy_extras import view3d_utils
@@ -142,45 +140,70 @@ class GizmoUpdate(GizmoProperty):
 
     def set_down_value(self, event):
         value = self.get_down_limits_value(event)
-        self.target_set_value("down_limits", value)
+        self._legacy_set_target_value(
+            "down_limits", value, message="Before Traditional Limits")
         if event.ctrl:
             dv = self.difference_value
             if self.is_minimum_scope:  # 如果上下限是最小距离再向相反方向移动那么上限和下限之间的距离就会增加
-                self.target_set_value("up_limits", value + dv + 0.001)
+                self._legacy_set_target_value(
+                    "up_limits", value + dv + 0.001,
+                    message="Before Traditional Limits")
             else:
-                self.target_set_value("up_limits", value + dv)
+                self._legacy_set_target_value(
+                    "up_limits", value + dv,
+                    message="Before Traditional Limits")
         elif self.is_middle_mode:
             if self.origin_mode == "LIMITS_MIDDLE":
                 mu = self.middle_limits_value
                 v = mu - (value - mu)
-                self.target_set_value("up_limits", v)
+                self._legacy_set_target_value(
+                    "up_limits", v, message="Before Traditional Limits")
             elif self.origin_mode == "MIDDLE":
-                self.target_set_value("up_limits", 1 - value)
+                self._legacy_set_target_value(
+                    "up_limits", 1 - value,
+                    message="Before Traditional Limits")
             else:
-                self.target_set_value("up_limits", self.modifier_up_limits)
+                self._legacy_set_target_value(
+                    "up_limits", self.modifier_up_limits,
+                    message="Before Traditional Limits")
         else:
-            self.target_set_value("up_limits", self.modifier_up_limits)
+            self._legacy_set_target_value(
+                "up_limits", self.modifier_up_limits,
+                message="Before Traditional Limits")
 
     def set_up_value(self, event):
         value = self.get_up_limits_value(event)
-        self.target_set_value("up_limits", value)
+        self._legacy_set_target_value(
+            "up_limits", value, message="Before Traditional Limits")
         if event.ctrl:
             dv = self.difference_value
             if self.is_minimum_scope:
-                self.target_set_value("down_limits", value - dv - 0.001)
+                self._legacy_set_target_value(
+                    "down_limits", value - dv - 0.001,
+                    message="Before Traditional Limits")
             else:
-                self.target_set_value("down_limits", value - dv)
+                self._legacy_set_target_value(
+                    "down_limits", value - dv,
+                    message="Before Traditional Limits")
         elif self.is_middle_mode:
             if self.origin_mode == "LIMITS_MIDDLE":
                 mu = self.middle_limits_value
                 value = mu - (value - mu)
-                self.target_set_value("down_limits", value)
+                self._legacy_set_target_value(
+                    "down_limits", value,
+                    message="Before Traditional Limits")
             elif self.origin_mode == "MIDDLE":
-                self.target_set_value("down_limits", 1 - value)
+                self._legacy_set_target_value(
+                    "down_limits", 1 - value,
+                    message="Before Traditional Limits")
             else:
-                self.target_set_value("down_limits", self.modifier_down_limits)
+                self._legacy_set_target_value(
+                    "down_limits", self.modifier_down_limits,
+                    message="Before Traditional Limits")
         else:
-            self.target_set_value("down_limits", self.modifier_down_limits)
+            self._legacy_set_target_value(
+                "down_limits", self.modifier_down_limits,
+                message="Before Traditional Limits")
 
     def update_header_text(self, context):
         origin = self.obj_origin_property_group
@@ -200,8 +223,10 @@ class GizmoUpdate(GizmoProperty):
         context.area.header_text_set(text)
 
     def restore_value(self):
-        self.target_set_value("up_limits", 1)
-        self.target_set_value("down_limits", 0)
+        self._legacy_set_target_value(
+            "up_limits", 1, message="Before Traditional Limits")
+        self._legacy_set_target_value(
+            "down_limits", 0, message="Before Traditional Limits")
 
 
 class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
@@ -211,7 +236,7 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
         {"id": "up_limits", "type": "FLOAT", "array_length": 1},
         {"id": "down_limits", "type": "FLOAT", "array_length": 1},
     )
-    bl_options = {"UNDO", "GRAB_CURSOR"}
+    bl_options = {"GRAB_CURSOR"}
 
     __slots__ = (
         "mod",
@@ -236,22 +261,17 @@ class UpDownLimitsGizmo(Gizmo, GizmoUpdate):
     def invoke(self, context, event):
         self.init_invoke(context, event)
 
-        if self.is_up_limits_mode:
-            self.int_value_up_limits = up_limits = self.modifier_up_limits
-            self.target_set_value("up_limits", up_limits)
-        elif self.is_down_limits_mode:
-            self.int_value_down_limits = down_limits = self.modifier_down_limits
-            self.target_set_value("down_limits", down_limits)
+        self.int_value_up_limits = self.modifier_up_limits
+        self.int_value_down_limits = self.modifier_down_limits
         return {"RUNNING_MODAL"}
 
     def exit(self, context, cancel):
         context.area.header_text_set(None)
         if cancel:
-            if self.is_up_limits_mode:
-                self.target_set_value("up_limits", self.int_value_up_limits)
-            elif self.is_down_limits_mode:
-                self.target_set_value(
-                    "down_limits", self.int_value_down_limits)
+            self.target_set_value("up_limits", self.int_value_up_limits)
+            self.target_set_value("down_limits", self.int_value_down_limits)
+        self._legacy_undo_finish(
+            cancel=cancel, message="Traditional Limits")
         self.update_multiple_modifiers_data()
         self.update_deform_wireframe(force=True)
 

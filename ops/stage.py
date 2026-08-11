@@ -1,4 +1,3 @@
-import bpy
 from bpy.props import EnumProperty, IntProperty
 from bpy.types import Operator
 
@@ -13,7 +12,7 @@ class SimpleDeformStageCycle(Operator):
     bl_idname = "simple_deform_gizmo.stage_cycle"
     bl_label = "Switch Simple Deform Stage"
     bl_description = "Make the previous or next Simple Deform modifier active"
-    bl_options = {"REGISTER"}
+    bl_options = {"REGISTER", "UNDO"}
 
     direction: EnumProperty(
         items=(
@@ -55,42 +54,6 @@ class SimpleDeformStageCycle(Operator):
         return {"FINISHED"}
 
 
-class AddSimpleDeformTopology(Operator):
-    bl_idname = "simple_deform_gizmo.add_topology"
-    bl_label = "Add Subdivision Before Deform"
-    bl_description = "Add a non-destructive subdivision modifier before the active Simple Deform"
-    bl_options = {"REGISTER", "UNDO"}
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.object
-        active = obj.modifiers.active if obj else None
-        return bool(obj and obj.type == "MESH" and active and active.type == "SIMPLE_DEFORM")
-
-    def execute(self, context):
-        obj = context.object
-        active = obj.modifiers.active
-        target_index = tuple(obj.modifiers).index(active)
-        subdivision = obj.modifiers.new("Simple Deform Topology", "SUBSURF")
-        subdivision.subdivision_type = "SIMPLE"
-        subdivision.levels = 2
-        subdivision.render_levels = 2
-        try:
-            bpy.ops.object.modifier_move_to_index(
-                modifier=subdivision.name,
-                index=target_index,
-            )
-        except RuntimeError:
-            self.report(
-                {"WARNING"},
-                "Subdivision was added at the end; move it before Simple Deform",
-            )
-        obj.modifiers.active = active
-        StageCache.rebuild(context, obj)
-        return {"FINISHED"}
-
-
 classes = (
     SimpleDeformStageCycle,
-    AddSimpleDeformTopology,
 )
