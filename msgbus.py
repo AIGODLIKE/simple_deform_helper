@@ -7,7 +7,7 @@ owner = object()
 remember_deform_method = {}
 
 
-def modify_deform_method():
+def _refresh_managed_origin(*, update_rotation=False):
     obj = bpy.context.object
     if not obj:
         return
@@ -15,22 +15,35 @@ def modify_deform_method():
     if not ma or ma.type != "SIMPLE_DEFORM":
         return
 
-    key = (int(obj.as_pointer()), int(ma.as_pointer()))
-    previous = remember_deform_method.get(key)
-    remember_deform_method[key] = ma.deform_method
-    if previous is None or previous == ma.deform_method:
-        return
-
     origin = ma.origin
     if not GizmoUtils.is_managed_origin(origin, obj):
         return
-    constraint = origin.constraints.get(PublicData.G_NAME_CON_LIMIT)
-    if not constraint:
+    if update_rotation:
+        constraint = origin.constraints.get(PublicData.G_NAME_CON_LIMIT)
+        if constraint:
+            for index, axis in enumerate(("X", "Y", "Z")):
+                value = origin.simple_deform_helper_rotate_xyz[index]
+                setattr(constraint, f"max_{axis.lower()}", value)
+                setattr(constraint, f"min_{axis.lower()}", value)
+    helper = GizmoUtils()
+    helper.clear_point_cache()
+    helper.update_object_origin_matrix()
+
+
+def modify_deform_method():
+    obj = bpy.context.object
+    ma = getattr(getattr(obj, "modifiers", None), "active", None)
+    if ma is None or ma.type != "SIMPLE_DEFORM":
         return
-    for index, axis in enumerate(("X", "Y", "Z")):
-        value = origin.simple_deform_helper_rotate_xyz[index]
-        setattr(constraint, f"max_{axis.lower()}", value)
-        setattr(constraint, f"min_{axis.lower()}", value)
+    key = (int(obj.as_pointer()), int(ma.as_pointer()))
+    previous = remember_deform_method.get(key)
+    remember_deform_method[key] = ma.deform_method
+    _refresh_managed_origin(
+        update_rotation=previous is not None and previous != ma.deform_method)
+
+
+def modify_deform_frame():
+    _refresh_managed_origin()
 
 
 def register():
@@ -40,6 +53,13 @@ def register():
         args=(),
         notify=modify_deform_method,
     )
+    for property_name in ("deform_axis", "limits"):
+        bpy.msgbus.subscribe_rna(
+            key=(bpy.types.SimpleDeformModifier, property_name),
+            owner=owner,
+            args=(),
+            notify=modify_deform_frame,
+        )
 
 def unregister():
     bpy.msgbus.clear_by_owner(owner)

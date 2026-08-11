@@ -18,9 +18,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: 4.2 LTS minimum
-            version: 4.2.22
-            url: https://download.blender.org/release/Blender4.2/blender-4.2.22-linux-x64.tar.xz
+          - label: 5.0 minimum
+            version: 5.0.0
+            url: https://download.blender.org/release/Blender5.0/blender-5.0.0-linux-x64.tar.xz
           - label: 5.2 current
             version: 5.2.0
             url: https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
@@ -45,6 +45,12 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q .
 
+      - name: Validate explicit cage dependencies
+        run: python tests/dependency_contract.py
+
+      - name: Validate translated report contracts
+        run: python tests/cage_chain_translation_contract.py
+
       - name: Validate source manifest
         run: >-
           "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
@@ -56,11 +62,83 @@ jobs:
           --background --factory-startup --python-exit-code 1
           --python tests/runtime_regression.py
 
-      - name: Run C4D-style Cage Bend regressions
+      - name: Run Cage Deform regressions
         run: >-
           "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
           --background --factory-startup --python-exit-code 1
-          --python tests/c4d_bend_regression.py
+          --python tests/cage_deform_regression.py
+
+      - name: Run unified deformation stack regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/unified_deform_stack_regression.py
+
+      - name: Run deformation runtime lifecycle regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/deform_runtime_lifecycle_regression.py
+
+      - name: Run animated cage cold-load regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/cage_load_runtime_regression.py
+
+      - name: Run Curve cage feature regressions
+        shell: bash
+        run: |
+          blender="${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/curve_radius_twist_preset_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/curve_cage_asset_regression.py
+
+      - name: Run multi-layer and Cage Chain regressions
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/cage_chain_regression.py
+
+      - name: Run dedicated cage type regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/cage_type_regression.py
+
+      - name: Run FFD lattice regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/ffd_lattice_regression.py
+
+      - name: Run chained Origin and gap regressions
+        shell: bash
+        run: |
+          blender="${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/mixed_chain_origin_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/subdivide_gap_profile_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_domain_classification_probe.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_physical_seam_probe.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_root_origin_gap_alignment_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_root_boundary_continuation_probe.py
+
+      - name: Run multi-object deform merge regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/deform_merge_regression.py
+
+      - name: Run registration conflict regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/registration_conflict_regression.py
+
+      - name: Validate interface locale catalogs
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/translation_locale_contract.py
 
       - name: Run window-context undo regression
         shell: bash
@@ -68,6 +146,22 @@ jobs:
           result="${RUNNER_TEMP}/sdh-gui-undo-${{ matrix.version }}.txt"
           xvfb-run -a "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender" --factory-startup --python tests/gui_undo_regression.py -- "$result"
           test "$(cat "$result")" = "PASS"
+
+      - name: Run FFD maximum-grid Gizmo draw smoke
+        shell: bash
+        run: |
+          result="${RUNNER_TEMP}/sdh-ffd-gizmo-${{ matrix.version }}.txt"
+          screenshot="${RUNNER_TEMP}/sdh-ffd-gizmo-${{ matrix.version }}.png"
+          xvfb-run -a "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender" --factory-startup --python tests/ffd_gizmo_draw_smoke.py -- "$result" "$screenshot"
+          grep -q '^PASS' "$result"
+          test -s "$screenshot"
+
+      - name: Run first external cage box-select regression
+        shell: bash
+        run: |
+          result="${RUNNER_TEMP}/sdh-first-box-select-${{ matrix.version }}.txt"
+          xvfb-run -a "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender" --factory-startup --python tests/first_external_box_select_regression.py -- "$result"
+          test "$(cat "$result")" = "PASS::FIRST_EXTERNAL_BOX_SELECT"
 
       - name: Build release archive
         run: >-
@@ -94,6 +188,12 @@ jobs:
           mkdir -p "$repository" "$BLENDER_USER_CONFIG" "$BLENDER_USER_EXTENSIONS" "$BLENDER_USER_SCRIPTS" "$BLENDER_USER_DATAFILES"
           "$blender" --factory-startup --command extension repo-add sdh_test --name "SDH Test" --directory "$repository" --clear-all
           "$blender" --command extension install-file -r sdh_test -e "${RUNNER_TEMP}/simple_deform_helper-${{ matrix.version }}.zip"
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/deform_merge_regression.py
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/curve_radius_twist_preset_regression.py
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/curve_cage_asset_regression.py
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/unified_deform_stack_regression.py
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/deform_runtime_lifecycle_regression.py
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/cage_load_runtime_regression.py
           "$blender" --background --python-exit-code 1 --python tests/installed_lifecycle.py
 
   next-blender:
@@ -119,8 +219,20 @@ jobs:
         shell: bash
         run: |
           blender="${RUNNER_TEMP}/blender-next/blender"
+          python tests/cage_chain_translation_contract.py
           "$blender" --command extension validate .
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/runtime_regression.py
-          "$blender" --background --factory-startup --python-exit-code 1 --python tests/c4d_bend_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_deform_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/unified_deform_stack_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/deform_runtime_lifecycle_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_load_runtime_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/curve_radius_twist_preset_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/curve_cage_asset_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_chain_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_type_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/ffd_lattice_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/deform_merge_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/registration_conflict_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/translation_locale_contract.py
           "$blender" --command extension build --source-dir . --output-filepath "${RUNNER_TEMP}/simple_deform_helper-next.zip"
           "$blender" --command extension validate "${RUNNER_TEMP}/simple_deform_helper-next.zip"

@@ -10,70 +10,13 @@ from . import (
     cage_deform,
 )
 
-bl_info = {
-    "name": "Simple Deform Helper V2",
-    "author": "AIGODLIKE Community:小萌新",
-    "version": (2, 0, 0),
-    "blender": (4, 2, 0),
-    "location": "3D View > Sidebar > Simple Deformer",
-    "description": "Cage deformation and stage-aware Simple Deform controls",
-    "doc_url": "https://github.com/AIGODLIKE/simple_deform_helper",
-    "tracker_url": "https://github.com/AIGODLIKE/simple_deform_helper/issues",
-    "category": "AIGODLIKE"
-}
+import logging
 
-"""
-TODO 文本的修改器支侍，暂时未找到解决方法获取原始加界框
-Text modifier support , have not yet found a solution to get the original bounding box
-
-# -------------------------
-__init__.py:
-    Register All Module
-    
-gizmo/__init__.py:
-    Register All Gizmo
-    
-    /angle_and_factor.py:
-        Ctrl Modifier Angle
-        
-    /bend_axis.py:
-        Bend Method Switch Direction Gizmo
-        
-    /set_deform_axis.py:
-        Three Switch Deform Axis Operator Gizmo
-    
-    /up_down_limits_point.py:
-        Main control part
-        use utils.py PublicProperty._get_limits_point_and_bound_box_co 
-            Obtain and calculate boundary box and limit point data
+import bpy
 
 
-draw.py:
-    Draw 3D Bound And Line
-
-gizmo.json:
-    Draw Custom Shape Vertex Data
-
-operator.py:
-    Set Deform Axis Operator
-
-panel.py:
-    Draw Gizmo Tool Property in Options and Tool Settings Right
-    
-preferences.py:
-    Addon Preferences
-
-translate.py:
-    temporary only Cn translate
-    
-update.py:
-    In Change Depsgraph When Update Addon Data And Del Redundant Empty
-
-utils.py:
-    Main documents used
-    Most computing operations are placed in classes GizmoUtils
-# -------------------------
-"""
+_LOGGER = logging.getLogger(__name__)
+_EXTENSION_ID = "simple_deform_helper"
 module_tuple = (
     translate,
     preferences,
@@ -86,12 +29,64 @@ module_tuple = (
     ui,
 )
 
+_registered_modules = []
+
+
+def _duplicate_installations():
+    """Return other enabled repositories carrying this extension ID."""
+    try:
+        entries = tuple(bpy.context.preferences.addons)
+    except (AttributeError, ReferenceError, RuntimeError, TypeError):
+        return ()
+    current = __package__
+    return tuple(
+        entry.module for entry in entries
+        if entry.module != current and
+        entry.module.rsplit(".", 1)[-1] == _EXTENSION_ID
+    )
+
+
+def _validate_registration_environment():
+    duplicates = _duplicate_installations()
+    if duplicates:
+        raise RuntimeError(
+            "Another Simple Deform Helper installation is enabled: "
+            f"{duplicates[0]}. Disable or uninstall the duplicate, restart "
+            "Blender, then enable this extension."
+        )
+    if hasattr(bpy.types.Object, "SimpleDeformGizmo_PropertyGroup"):
+        raise RuntimeError(
+            "A previous Simple Deform Helper registration is still loaded. "
+            "Restart Blender, then enable this extension again."
+        )
+
+
+def _rollback_modules(modules):
+    for item in reversed(tuple(modules)):
+        try:
+            item.unregister()
+        except Exception:
+            _LOGGER.exception(
+                "Failed to roll back module %s", getattr(item, "__name__", item))
+
 
 def register():
-    for item in module_tuple:
-        item.register()
+    if _registered_modules:
+        return
+    _validate_registration_environment()
+    completed = []
+    try:
+        for item in module_tuple:
+            item.register()
+            completed.append(item)
+    except Exception:
+        _rollback_modules(completed)
+        raise
+    _registered_modules.extend(completed)
 
 
 def unregister():
-    for item in reversed(module_tuple):
-        item.unregister()
+    if not _registered_modules:
+        return
+    _rollback_modules(tuple(_registered_modules))
+    _registered_modules.clear()

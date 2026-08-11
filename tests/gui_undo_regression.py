@@ -31,29 +31,9 @@ def run_test():
             bpy.ops.mesh.primitive_cube_add()
             obj = bpy.context.object
             first = obj.modifiers.new("Undo Bend", "SIMPLE_DEFORM")
-            second = obj.modifiers.new("Undo Twist", "SIMPLE_DEFORM")
+            obj.modifiers.new("Undo Twist", "SIMPLE_DEFORM")
             obj.modifiers.active = first
-            bpy.ops.ed.undo_push(message="Before topology helper")
-
-            if bpy.ops.simple_deform_gizmo.add_topology() != {"FINISHED"}:
-                raise AssertionError("topology operator failed")
-            if len(obj.modifiers) != 3:
-                raise AssertionError("topology modifier was not added")
-            # Python runs this test inside a timer callback, so Blender has not
-            # yet returned to the event loop to commit the operator's automatic
-            # UNDO boundary. Push the same post-operator state explicitly.
-            bpy.ops.ed.undo_push(message="After topology helper")
-            if bpy.ops.ed.undo() != {"FINISHED"}:
-                raise AssertionError("undo operator failed")
-
-            restored = bpy.context.view_layer.objects.active
-            if restored is None:
-                raise AssertionError("active object was lost after undo")
-            if len(restored.modifiers) != 2:
-                raise AssertionError("topology modifier survived undo")
-            if [modifier.type for modifier in restored.modifiers] != [
-                    "SIMPLE_DEFORM", "SIMPLE_DEFORM"]:
-                raise AssertionError("Simple Deform stack changed after undo")
+            restored = obj
 
             stages = importlib.import_module(f"{PACKAGE}.stages").StageCache
             if not stages.rebuild(bpy.context, restored):
@@ -71,7 +51,49 @@ def run_test():
                 raise AssertionError("cage deform modifier was not added")
             if not any(cage_module.is_cage_controller(obj) for obj in bpy.data.objects):
                 raise AssertionError("cage controller was not added")
-            bpy.ops.ed.undo_push(message="After cage deform")
+
+            # Cage Gizmos write controller RNA directly.  Their explicit
+            # before/after snapshots must make the first undo restore only the
+            # dragged value, leaving the just-created cage intact.
+            cage_stage = cage_module.cage_modifiers(restored)[0]
+            cage_controller = cage_module.find_controller(restored, cage_stage)
+            cage_properties = cage_controller.sdh_cage_deform
+            initial_bend = float(cage_properties.bend_strength)
+            gizmo_module = importlib.import_module(
+                f"{PACKAGE}.cage_deform.gizmos")
+            transaction = object()
+            if not gizmo_module._SDHCageParameterGizmo._set_float_if_changed(
+                    transaction,
+                    cage_properties,
+                    "bend_strength",
+                    initial_bend + 0.5,
+                    bpy.context,
+            ):
+                raise AssertionError("cage control did not write its value")
+            gizmo_module._finish_gizmo_undo(
+                transaction, message="Cage Bend Angle")
+            if bpy.ops.ed.undo() != {"FINISHED"}:
+                raise AssertionError("cage control undo failed")
+            restored_active = bpy.context.view_layer.objects.active
+            restored = (
+                cage_module.find_target(restored_active)
+                if cage_module.is_cage_controller(restored_active)
+                else restored_active
+            )
+            restored_stages = cage_module.cage_modifiers(restored)
+            if len(restored_stages) != 1:
+                raise AssertionError(
+                    "cage control undo removed the newly-created cage")
+            restored_controller = cage_module.find_controller(
+                restored, restored_stages[0])
+            if abs(
+                    float(restored_controller.sdh_cage_deform.bend_strength) -
+                    initial_bend
+            ) > 1.0e-6:
+                raise AssertionError(
+                    "cage control undo did not restore the previous value")
+
+            # The next undo is still the cage-creation action.
             if bpy.ops.ed.undo() != {"FINISHED"}:
                 raise AssertionError("cage deform undo failed")
             restored = bpy.context.view_layer.objects.active
@@ -98,14 +120,29 @@ def run_test():
             bpy.ops.ed.undo_push(message="After removing cage stack")
             if bpy.ops.ed.undo() != {"FINISHED"}:
                 raise AssertionError("whole-stack removal undo failed")
-            restored = bpy.context.view_layer.objects.active
-            if len(cage_module.cage_modifiers(restored)) != 2:
-                raise AssertionError("whole-stack undo did not restore both stages")
-            if len([
+            restored_active = bpy.context.view_layer.objects.active
+            restored = (
+                cage_module.find_target(restored_active)
+                if cage_module.is_cage_controller(restored_active)
+                else restored_active
+            )
+            if restored is None:
+                raise AssertionError("whole-stack undo lost the cage target")
+            restored_stages = cage_module.cage_modifiers(restored)
+            restored_controllers = [
                     item for item in bpy.data.objects
                     if cage_module.is_cage_controller(item) and item.parent == restored
-            ]) != 2:
-                raise AssertionError("whole-stack undo did not restore both controllers")
+            ]
+            if len(restored_stages) != 2:
+                raise AssertionError(
+                    "whole-stack undo did not restore both stages: "
+                    f"active={getattr(restored, 'name', None)!r}, "
+                    f"stages={[item.name for item in restored_stages]!r}, "
+                    f"controllers={[item.name for item in restored_controllers]!r}")
+            if len(restored_controllers) != 2:
+                raise AssertionError(
+                    "whole-stack undo did not restore both controllers: "
+                    f"{[item.name for item in restored_controllers]!r}")
             if bpy.ops.sdh.remove_cage_stack() != {"FINISHED"}:
                 raise AssertionError("whole-stack cleanup failed")
 

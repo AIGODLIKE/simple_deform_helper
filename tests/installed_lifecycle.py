@@ -1,6 +1,7 @@
 """Confirm that an extension installed with Blender's CLI can enable cleanly."""
 
 import importlib
+import os
 from types import SimpleNamespace
 
 import addon_utils
@@ -8,9 +9,11 @@ import bpy
 from mathutils import Vector
 
 
+expected_module = os.environ.get(
+    "SDH_TEST_MODULE", "bl_ext.sdh_test.simple_deform_helper")
 matches = [
     entry.module for entry in bpy.context.preferences.addons
-    if entry.module == "bl_ext.sdh_test.simple_deform_helper"
+    if entry.module == expected_module
 ]
 if len(matches) != 1:
     raise RuntimeError(f"Expected one enabled Simple Deform Helper extension, got {matches!r}")

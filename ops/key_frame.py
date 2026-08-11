@@ -1,3 +1,4 @@
+from bpy.app.translations import pgettext_iface as iface_
 from bpy.types import Operator
 
 from ..utils import GizmoUtils, PublicData
@@ -29,6 +30,41 @@ def origin_constraint_paths(origin):
     )
 
 
+def _delete_key(owner, data_path):
+    try:
+        return bool(owner.keyframe_delete(data_path, group=group_name))
+    except (AttributeError, ReferenceError, RuntimeError, TypeError):
+        return False
+
+
+def keyframe_simple_deform(modifier, *, delete=False):
+    """Insert or delete the complete managed traditional deformation state."""
+    if modifier is None or getattr(modifier, "type", None) != "SIMPLE_DEFORM":
+        return 0
+    keyframe = _delete_key if delete else (
+        lambda owner, data_path: bool(owner.keyframe_insert(
+            data_path, group=group_name)))
+    changed = 0
+    for data_path in active_paths(modifier):
+        try:
+            changed += int(keyframe(modifier, data_path))
+        except (AttributeError, ReferenceError, RuntimeError, TypeError):
+            pass
+
+    origin = managed_origin(modifier)
+    if origin:
+        try:
+            changed += int(keyframe(origin, "location"))
+        except (AttributeError, ReferenceError, RuntimeError, TypeError):
+            pass
+        for constraint, data_path in origin_constraint_paths(origin):
+            try:
+                changed += int(keyframe(constraint, data_path))
+            except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                pass
+    return changed
+
+
 class KeyFrame(Operator):
     bl_idname = "simple_deform_gizmo.key_frame"
     bl_label = "Insert Keyframe"
@@ -41,20 +77,11 @@ class KeyFrame(Operator):
 
     def execute(self, context):
         mod = context.object.modifiers.active
-        inserted = 0
-        for data_path in active_paths(mod):
-            if mod.keyframe_insert(data_path, group=group_name):
-                inserted += 1
+        inserted = keyframe_simple_deform(mod)
 
-        origin = managed_origin(mod)
-        if origin:
-            if origin.keyframe_insert("location", group=group_name):
-                inserted += 1
-            for constraint, data_path in origin_constraint_paths(origin):
-                if constraint.keyframe_insert(data_path, group=group_name):
-                    inserted += 1
-
-        self.report({"INFO"}, f"Inserted {inserted} Simple Deform keyframe channels")
+        self.report({"INFO"}, iface_(
+            "Inserted {inserted} Simple Deform keyframe channels").format(
+                inserted=inserted))
         return {"FINISHED"}
 
 
@@ -68,27 +95,11 @@ class RemoveFrame(Operator):
     def poll(cls, context):
         return GizmoUtils.poll_modifier_type_is_simple(context)
 
-    @staticmethod
-    def delete_key(owner, data_path):
-        try:
-            return bool(owner.keyframe_delete(data_path, group=group_name))
-        except (RuntimeError, TypeError):
-            return False
-
     def execute(self, context):
         mod = context.object.modifiers.active
-        removed = sum(
-            self.delete_key(mod, data_path)
-            for data_path in active_paths(mod)
-        )
+        removed = keyframe_simple_deform(mod, delete=True)
 
-        origin = managed_origin(mod)
-        if origin:
-            removed += self.delete_key(origin, "location")
-            removed += sum(
-                self.delete_key(constraint, data_path)
-                for constraint, data_path in origin_constraint_paths(origin)
-            )
-
-        self.report({"INFO"}, f"Removed {removed} Simple Deform keyframe channels")
+        self.report({"INFO"}, iface_(
+            "Removed {removed} Simple Deform keyframe channels").format(
+                removed=removed))
         return {"FINISHED"}

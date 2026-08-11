@@ -17,6 +17,10 @@ DEFORM_TYPE = (
     sys.argv[sys.argv.index("--") + 3]
     if len(sys.argv) > sys.argv.index("--") + 3 else "BEND"
 )
+IN_FRONT = (
+    sys.argv[sys.argv.index("--") + 4].upper() == "IN_FRONT"
+    if len(sys.argv) > sys.argv.index("--") + 4 else False
+)
 sys.path.insert(0, str(SOURCE.parent))
 
 state = {"addon": None, "entry": None, "phase": 0}
@@ -35,6 +39,8 @@ def run():
             entry.module = PACKAGE
             addon = importlib.import_module(PACKAGE)
             addon.register()
+            bpy.context.preferences.addons[
+                PACKAGE].preferences.show_wireframe_in_front = IN_FRONT
             try:
                 bpy.ops.wm.splash_close()
             except (AttributeError, RuntimeError):

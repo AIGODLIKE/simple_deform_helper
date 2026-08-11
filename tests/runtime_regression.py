@@ -75,6 +75,8 @@ msgbus_module = importlib.import_module(f"{PACKAGE}.msgbus")
 update_module = importlib.import_module(f"{PACKAGE}.update")
 angle_module = importlib.import_module(f"{PACKAGE}.gizmo.angle_and_factor")
 header_module = importlib.import_module(f"{PACKAGE}.ui.header")
+preferences_module = importlib.import_module(f"{PACKAGE}.preferences")
+viewport_module = importlib.import_module(f"{PACKAGE}.cage_deform.viewport")
 StageCache = stages_module.StageCache
 PublicData = utils_module.PublicData
 helper = utils_module.GizmoUpdate()
@@ -147,6 +149,81 @@ def runtime_evaluators_are_hidden():
 case("runtime_evaluators_are_hidden", runtime_evaluators_are_hidden)
 
 
+def cage_overlay_depth_contract():
+    preference = helper.pref
+    original_in_front = bool(preference.show_wireframe_in_front)
+    original_gpu = viewport_module.gpu
+    original_utils_gpu = utils_module.gpu
+    depth_modes = []
+    draw_calls = []
+
+    class FakeGizmo:
+        def draw_custom_shape(self, *args, **kwargs):
+            draw_calls.append((args, kwargs))
+
+    viewport_module.gpu = SimpleNamespace(
+        state=SimpleNamespace(depth_test_set=depth_modes.append))
+    try:
+        property_definition = (
+            preferences_module.SimpleDeformGizmoAddonPreferences.bl_rna
+            .properties["show_wireframe_in_front"])
+        check(bool(property_definition.default),
+              "In Front is not enabled by default")
+
+        preference.show_wireframe_in_front = False
+        check(viewport_module.cage_overlay_depth_test() == "LESS_EQUAL",
+              "cage preview ignored object occlusion")
+        viewport_module.draw_cage_custom_shape(
+            FakeGizmo(), "shape", matrix="matrix", select_id=7)
+        check(depth_modes == ["LESS_EQUAL", "NONE"],
+              "occluded cage preview did not restore GPU depth state")
+        check(draw_calls == [(("shape",), {
+            "matrix": "matrix", "select_id": 7})],
+              "cage preview draw arguments changed")
+
+        depth_modes.clear()
+        draw_calls.clear()
+        check(viewport_module.gizmo_depth_test() == "ALWAYS",
+              "interactive controls are not configured in front")
+        viewport_module.draw_gizmo_custom_shape(
+            FakeGizmo(), "shape", matrix="matrix", select_id=11)
+        check(depth_modes == ["ALWAYS", "NONE"],
+              "interactive control was occluded with In Front disabled")
+        check(draw_calls == [(("shape",), {
+            "matrix": "matrix", "select_id": 11})],
+              "interactive Gizmo draw arguments changed")
+
+        depth_modes.clear()
+        draw_calls.clear()
+        utils_module.gpu = SimpleNamespace(
+            state=SimpleNamespace(depth_test_set=depth_modes.append))
+        legacy_gizmo = SimpleNamespace(
+            draw_custom_shape=lambda *args, **kwargs:
+            draw_calls.append((args, kwargs)))
+        utils_module.GizmoUtils.draw_interactive_custom_shape(
+            legacy_gizmo, "legacy", select_id=13)
+        check(depth_modes == ["ALWAYS", "NONE"],
+              "traditional interactive control was occluded")
+        check(draw_calls == [(("legacy",), {"select_id": 13})],
+              "traditional Gizmo draw arguments changed")
+
+        depth_modes.clear()
+        preference.show_wireframe_in_front = True
+        check(viewport_module.cage_overlay_depth_test() == "ALWAYS",
+              "In Front did not restore the always-visible cage overlay")
+        viewport_module.draw_cage_custom_shape(FakeGizmo(), "shape")
+        check(depth_modes == ["ALWAYS", "NONE"],
+              "front cage preview did not restore GPU depth state")
+    finally:
+        viewport_module.gpu = original_gpu
+        utils_module.gpu = original_utils_gpu
+        preference.show_wireframe_in_front = original_in_front
+    return "preview follows In Front; interactive controls always stay in front"
+
+
+case("cage_overlay_depth_contract", cage_overlay_depth_contract)
+
+
 def stage_selection_and_reorder():
     obj.modifiers.active = first
     check(bpy.ops.simple_deform_gizmo.stage_cycle(index=1) == {"FINISHED"},
@@ -200,6 +277,83 @@ def multi_stage_ui_with_external_origin():
 
 
 case("multi_stage_ui_with_external_origin", multi_stage_ui_with_external_origin)
+
+
+def traditional_header_controls():
+    class Layout:
+        def __init__(self):
+            self.properties = []
+
+        def row(self, **_kwargs):
+            return self
+
+        def separator(self, **_kwargs):
+            return None
+
+        def prop(self, _data, property_name, **_kwargs):
+            self.properties.append(property_name)
+
+    obj.modifiers.active = first
+    context = SimpleNamespace(
+        object=obj,
+        space_data=SimpleNamespace(type="VIEW_3D", show_gizmo=True),
+    )
+    menu = SimpleNamespace(layout=Layout())
+    preferences_module.SimpleDeformGizmoAddonPreferences.draw_header_tool_settings(
+        menu, context)
+    check(menu.layout.properties[:3] == [
+        "deform_method", "deform_axis", "angle"],
+          f"traditional header controls changed: {menu.layout.properties!r}")
+    return menu.layout.properties
+
+
+case("traditional_header_controls", traditional_header_controls)
+
+
+def rotated_managed_origin_bounds():
+    bpy.ops.mesh.primitive_cube_add()
+    rotated_target = bpy.context.object
+    rotated_target.name = "Rotated Origin Bounds Target"
+    rotated_target.scale = (1.0, 2.0, 3.0)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    rotated_modifier = rotated_target.modifiers.new(
+        "Rotated Origin Bend", "SIMPLE_DEFORM")
+    rotated_modifier.deform_method = "BEND"
+    rotated_modifier.deform_axis = "Z"
+    rotated_target.modifiers.active = rotated_modifier
+    rotated_target.SimpleDeformGizmo_PropertyGroup.origin_mode = "DOWN_LIMITS"
+    helper.clear_point_cache()
+    origin = helper.new_origin_empty_object(force_managed=True)
+    check(origin is not None, "managed Origin was not created")
+    origin.SimpleDeformGizmo_PropertyGroup.origin_mode = "DOWN_LIMITS"
+    try:
+        for degrees in (0.0, 1.0, 45.0, 90.0, 135.0):
+            origin.simple_deform_helper_rotate_angle = math.radians(degrees)
+            bpy.context.view_layer.update()
+            helper.clear_point_cache()
+            check(
+                helper.modifier_origin_is_available,
+                f"managed Origin bounds failed at {degrees} degrees",
+            )
+            up, down, upper_limit, lower_limit = helper.modifier_limits_point
+            check((up - down).length > 1.0e-6,
+                  f"managed Origin axis collapsed at {degrees} degrees")
+            check((upper_limit - lower_limit).length > 1.0e-6,
+                  f"managed Origin limits collapsed at {degrees} degrees")
+            check(len(helper.modifier_limits_bound_box) == 8,
+                  f"managed Origin box is incomplete at {degrees} degrees")
+    finally:
+        rotated_modifier.origin = None
+        rotated_target.SimpleDeformGizmo_PropertyGroup.origin_mode = "NOT"
+        bpy.data.objects.remove(origin, do_unlink=True)
+        bpy.data.objects.remove(rotated_target, do_unlink=True)
+        activate(obj)
+        obj.modifiers.active = first
+        helper.clear_point_cache()
+    return "arbitrary-angle managed Origin bounds"
+
+
+case("rotated_managed_origin_bounds", rotated_managed_origin_bounds)
 
 
 def strength_binding():
@@ -411,37 +565,30 @@ def scoped_keyframes():
 case("scoped_keyframes", scoped_keyframes)
 
 
-def topology_and_no_object_callback():
+def no_object_callback():
     activate(obj)
     obj.modifiers.active = first
-    index = tuple(obj.modifiers).index(first)
-    bpy.ops.ed.undo_push(message="Before Simple Deform topology fix")
-    check(bpy.ops.simple_deform_gizmo.add_topology() == {"FINISHED"},
-          "topology operator failed")
-    subdivision = tuple(obj.modifiers)[index]
-    check(subdivision.type == "SUBSURF" and subdivision.subdivision_type == "SIMPLE",
-          "Simple Subdivision was not inserted")
-    check(obj.modifiers.active == first, "active stage was not preserved")
     bpy.context.view_layer.objects.active = None
     obj.select_set(False)
     msgbus_module.modify_deform_method()
-    return subdivision.name
+    return "ignored safely"
 
 
-case("topology_and_no_object_callback", topology_and_no_object_callback)
+case("no_object_callback", no_object_callback)
 
 
 def clean_lifecycle():
-    timer = update_module._timer_callback
-    check(bpy.app.timers.is_registered(timer), "timer is not registered")
     addon.unregister()
-    check(not bpy.app.timers.is_registered(timer), "timer survived unregister")
+    check(not hasattr(bpy.types.Object, "sdh_cage_deform"),
+          "cage properties survived unregister")
     check(not any(item.get(stages_module.RUNTIME_STAGE_OBJECT, False)
                   for item in bpy.data.objects), "stage object survived unregister")
     addon.register()
-    check(bpy.app.timers.is_registered(timer), "timer missing after re-register")
+    check(hasattr(bpy.types.Object, "sdh_cage_deform"),
+          "cage properties missing after re-register")
     addon.unregister()
-    check(not bpy.app.timers.is_registered(timer), "timer survived second unregister")
+    check(not hasattr(bpy.types.Object, "sdh_cage_deform"),
+          "cage properties survived second unregister")
     return "register/unregister/register/unregister"
 
 

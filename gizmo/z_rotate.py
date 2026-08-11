@@ -31,13 +31,21 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event, tweak):
+        # Origin rotation changes the local coordinate frame used by the
+        # traditional limit helpers. Invalidate both before and after the
+        # write so the ring and limit handles never draw from the old frame.
+        self.clear_point_cache()
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         diff = mouse.x - self.start_point.x
         v = self.get_snap(diff, tweak) * 0.005
         angle = (180 * v / math.pi)
-        self.target_set_value("angle_value", self.start_angle + math.radians(angle))
+        self._legacy_set_target_value(
+            "angle_value", self.start_angle + math.radians(angle),
+            message="Before Traditional Origin Rotation")
+        self.clear_point_cache()
         self.update_deform_wireframe()
         self.update_object_origin_matrix()
+        self.clear_point_cache()
         self.tag_redraw(context)
         return {"RUNNING_MODAL"}
 
@@ -45,6 +53,8 @@ class ZRotateGizmo(Gizmo, GizmoUtils):
         context.area.header_text_set(None)
         if cancel:
             self.target_set_value("angle_value", self.start_angle)
+        self._legacy_undo_finish(
+            cancel=cancel, message="Traditional Origin Rotation")
         self.update_multiple_modifiers_data()
         self.update_deform_wireframe(force=True)
 

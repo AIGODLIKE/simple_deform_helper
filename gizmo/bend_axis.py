@@ -16,10 +16,11 @@ class CustomGizmo(Gizmo, GizmoUtils):
         self.init_setup()
 
     def draw(self, context):
-        self.draw_custom_shape(self.custom_shape[self.draw_type])
+        self.draw_interactive_custom_shape(
+            self.custom_shape[self.draw_type])
 
     def draw_select(self, context, select_id):
-        self.draw_custom_shape(
+        self.draw_interactive_custom_shape(
             self.custom_shape[self.draw_type], select_id=select_id)
 
     def invoke(self, context, event):

@@ -4,8 +4,8 @@
 
 **A production-oriented deformation workflow for Blender: build compound Bend, Twist, Taper, and Stretch effects inside visible, editable cages.**
 
-[![Download 2.0.0](https://img.shields.io/badge/Download-2.0.0-2ea44f?style=for-the-badge)](https://github.com/AIGODLIKE/simple_deform_helper/releases/download/v2.0.0/simple_deform_helper-2.0.0.zip)
-[![Blender 4.2+](https://img.shields.io/badge/Blender-4.2%2B-F5792A?style=for-the-badge&logo=blender&logoColor=white)](https://www.blender.org/download/lts/4-2/)
+[![Download 2.4.6](https://img.shields.io/badge/Download-2.4.6-2ea44f?style=for-the-badge)](https://github.com/AIGODLIKE/simple_deform_helper/releases/download/v2.4.6/simple_deform_helper-2.4.6.zip)
+[![Blender 5.0+](https://img.shields.io/badge/Blender-5.0%2B-F5792A?style=for-the-badge&logo=blender&logoColor=white)](https://www.blender.org/download/)
 [![Validation](https://img.shields.io/github/actions/workflow/status/AIGODLIKE/simple_deform_helper/validate.yml?branch=master&style=for-the-badge&label=validation)](https://github.com/AIGODLIKE/simple_deform_helper/actions/workflows/validate.yml)
 
 [简体中文](README.zh_HANS.md) · [日本語](README.ja_JP.md) · [한국어](README.ko_KR.md) · [Releases](https://github.com/AIGODLIKE/simple_deform_helper/releases) · [Report a bug](https://github.com/AIGODLIKE/simple_deform_helper/issues/new?template=bug_report.yml)
@@ -22,11 +22,11 @@ Most tools can bend an object. V2 is designed around the harder production quest
 
 | Production need | Simple Deform Helper V2 answer |
 |---|---|
-| Compound deformation | One cage can contain **Bend, Twist, Taper, and Stretch** as ordered layers. Reorder or temporarily mute a layer without rebuilding the setup. |
+| Compound deformation | One **Standard Type** cage can contain ordered **Bend, Twist, Taper, and Stretch** layers. Reorder, mute, or key them without rebuilding the setup. |
 | Long, articulated forms | A **chained cage** divides the object into editable segments with optional gaps, automatic downstream reconnection, and synchronized shared-end scale. |
 | Asymmetric shaping | Top and bottom length, X/Z scale, and X/Z offset are independent. No forced center-symmetric resize. |
 | Direction discovery | **Bend Trend** exposes two bend choices on each of six faces; axis selection and **Align & Fit** keep the cage matched to the stage input. |
-| Direct manipulation | Bend, Twist, Taper, Stretch, end shape, and end length have distinct viewport handles, colors, and hover names. |
+| Direct manipulation | Bend, Twist, Taper, Stretch, Shear, FFD corners, end shape, and end length have distinct viewport handles, colors, and hover names. |
 | Non-destructive delivery | Geometry Nodes stages remain visible in the modifier stack, support animation, and keep working after the extension is disabled. |
 | Existing Blender files | A separate **legacy Simple Deform** workflow adds stage-aware gizmos, limits, Origin control, wireframe preview, and low-topology guidance to native modifiers. |
 
@@ -41,18 +41,21 @@ The comparison is about the concentration of these controls in one Blender workf
 | One local or compound deformation | **Add Cage Deform** | One independent Geometry Nodes cage stage. |
 | A pipe, tail, cable, horn, tentacle, or segmented body | **Add Chained Cages** | 2-8 related cage stages created and fitted in one operation. |
 | Divide an existing authored cage without changing its total range | **Subdivide to Chained Cages** | A chain derived from the active cage; Bend/Twist values are distributed across segments. |
+| A dedicated cross-section slide | **Add Shear Cage** | One Shear-only cage with its own cyan handle; it is intentionally not chainable. |
+| A dense free-form edit | **Add FFD Cage** | A native multi-point lattice cage with 2-6 points on each axis (up to 6x6x6). Select a group of points and move them together; it is intentionally not chainable. |
 | Control Blender's native modifier directly | **Add Simple Deform (Legacy)** | A standard Simple Deform modifier with the original helper gizmos. |
 | Lattice object | **Add Simple Deform (Legacy)** | Native modifier only; cage deformation is intentionally unavailable for Lattice. |
 
 ## Install
 
-1. Download [`simple_deform_helper-2.0.0.zip`](https://github.com/AIGODLIKE/simple_deform_helper/releases/download/v2.0.0/simple_deform_helper-2.0.0.zip). Do not use GitHub's automatically generated Source code ZIP.
-2. In Blender, open **Edit > Preferences > Get Extensions**.
-3. Open the menu in the upper-right corner and choose **Install from Disk**.
-4. Select the downloaded ZIP and enable **Simple Deform Helper V2** if Blender does not enable it automatically.
-5. In the 3D View, press `N` and open the **Simple Deformer V2** tab.
+1. Download [`simple_deform_helper-2.4.6.zip`](https://github.com/AIGODLIKE/simple_deform_helper/releases/download/v2.4.6/simple_deform_helper-2.4.6.zip). Do not use GitHub's automatically generated Source code ZIP.
+2. In Blender, open **Edit > Preferences > Get Extensions**. Before using the GitHub ZIP, uninstall the old **Simple Deform Helper** copy from the **Blender Extensions** repository. If **Simple Deform Helper V2** is already installed in **User Default**, leave that copy in place; this ZIP replaces it.
+3. Fully quit and restart Blender so no classes from the removed copy remain loaded.
+4. Open **Get Extensions**, choose **Install from Disk**, select **User Default** as the repository, and select the ZIP.
+5. Enable **Simple Deform Helper** if Blender does not enable it automatically.
+6. In the 3D View, press `N` and open the **Simple Deformer V2** tab.
 
-For an update, install the newer release ZIP over the existing extension, then restart Blender. Save a versioned copy of important `.blend` files before updating production scenes.
+Keep only one repository copy. The extension ID and extension-list name remain `simple_deform_helper` and **Simple Deform Helper**, but Blender treats the same ID in **Blender Extensions** and **User Default** as two separate modules. Once this version is published on the original Blender Extensions listing, use Blender's **Update** action instead of the GitHub ZIP for an in-place official update. Save a versioned copy of important `.blend` files before updating production scenes.
 
 ## First bend in 60 seconds
 
@@ -65,7 +68,24 @@ For an update, install the newer release ZIP over the existing extension, then r
 7. Drag the orange Bend handle. Hold `Shift` for precision or `Ctrl` for snapping.
 8. Click **Return to Object** when finished editing the controller.
 
-If the bend looks faceted, the object needs more geometry along the deform axis. The legacy panel can add a non-destructive Simple subdivision before its active modifier; cage targets should likewise have enough evaluated segments before the cage stage.
+To animate the setup, use **Insert Keys** in the cage panel. It keys the active
+layer parameters, end profiles, Shear/FFD values, cage size, and transform on
+the current frame; **Delete Keys** removes those channels at the current frame.
+
+If the bend looks faceted, add geometry along the deform axis before the cage stage. The panel reports low topology but does not insert a hidden pre-deform subdivision modifier.
+
+## Merge several objects for one deformation
+
+1. Select two or more Mesh, Curve, Surface, Text, Metaball, Curves, or Point Cloud objects.
+2. At the top of **Simple Deformer V2**, click **Merge Selected for Deform**. Non-mesh sources are converted to meshes; the original source objects remain linked and update the merge live.
+3. Add **Cage Deform**, chained cages, or other modifiers to the generated merged object.
+4. Double-click a visible part of the merged result to select that source object. It appears as an in-front wire object while you edit its own modifier stack.
+5. While a source is being edited, the blue preview outline shows that source after the merged object's complete modifier stack. Toggle **Show Final Merged State While Editing Sources** in Add-on Preferences to disable it.
+6. Use **Add Cage to Final Source** to fit a new cage to the selected source after the merged object's current modifier stack. The stage is source-masked, so the other merged sources remain unchanged.
+7. The **Merged Sources** list stays visible while editing. Click a row to switch sources; the viewport session also accepts a double-click on another part, a double-click on empty space to return, or `Esc`/right mouse to exit.
+8. Use **Return to Merged Object** to hide the source again, or the unlink button to remove the generated merge and restore source visibility.
+
+The source identity is preserved through later cage deformation, so editing remains available after the merged object has been bent, twisted, tapered, or stretched.
 
 ## Build a compound deformation
 
@@ -97,6 +117,14 @@ Useful starting orders:
 | Elastic bend | Stretch -> Bend | Length changes before curvature is evaluated. |
 | Compare a variation | Mute one layer | Keeps its value and position while removing only its effect. |
 
+### Dedicated Shear and FFD cages
+
+Enable **Symmetry** in an FFD layer and choose the cage-local `U`, `V`, or `W`
+center plane to mirror point, line, and face edits. The active side drives the
+corresponding mirrored side during move, rotate, and scale operations.
+
+Use **Add Shear Cage** for a lateral cross-section slide. Its cyan end-plane handle supports free planar dragging, `Alt` for cage X, `Shift` for cage Z, and `Ctrl` snapping. Use **Add FFD Cage** for a native lattice that starts at `2x2x2` (eight points), supports `2-6` points on each axis (up to `6x6x6`), and keeps the panel compact. Use **Box Select** or All/None/Invert, then drag any selected point to move the selected group. **Hollow FFD** hides and excludes interior points. These dedicated cages cannot be chained or subdivided; choose **Add Cage Deform** for an ordered Standard Type stack.
+
 ## Build a chained cage
 
 Chained cages are for a continuous form that needs several local deformation regions.
@@ -111,7 +139,7 @@ Chained cages are for a continuous form that needs several local deformation reg
 
 ### Subdivide an existing cage
 
-Select a single cage with **Bottom** Origin, then choose **Subdivide to Chained Cages**. The original outer boundaries are preserved, requested gaps are clamped to fit the range, and Bend/Twist angles are distributed across the new segments. Animated cage parameters are not subdivided automatically because that would be ambiguous.
+Select a single Standard Type cage, then choose **Subdivide to Chained Cages**. The original outer boundaries and interpolated top/bottom scale and offset profile are preserved, requested gaps are clamped to fit the range, and Bend/Twist values are distributed across the new segments. **Bottom** Origin is recommended; other Origins are accepted with a warning because mixed operations may introduce approximation error. Animated cage parameters are not subdivided automatically because their intent is ambiguous.
 
 ### Edit several segments at once
 
@@ -129,12 +157,14 @@ Open **Batch Edit** and choose the whole chain, start-to-active, or active-to-en
 | Handle | Meaning | Interaction |
 |---|---|---|
 | Orange double arrow | Bend angle | Drag; `Shift` precision; `Ctrl` snap. |
-| Small orange direction handle | Fine Bend direction | Enable **Fine Direction**, then drag. |
+| Large orange direction ring | Bend direction ring | Enable **Show Twist**, then drag. |
 | Large purple arc | Twist angle | Drag around its center; the angle continues cleanly across the seam. |
 | Amber handle | Taper factor | Drag; `Shift` precision; `Ctrl` snap. |
 | Green handle | Stretch factor | Drag; `Shift` precision; `Ctrl` snap. |
 | Yellow top / amber bottom | Move only one cage boundary | Drag along the cage axis; bounds stop at the input object when **Limit to Object Bounds** is on. |
-| Cyan top / green bottom | Shape only one end | Drag for cross-section scale; hold `Alt` to slide in local X; `Shift` precision; `Ctrl` snap. |
+| Cyan top crown / green bottom tray | Shape only one end | Drag to scale; `Alt` moves screen X; `Shift` moves screen Y; `Alt+Shift` moves freely; `Ctrl` snaps. |
+| Cyan four-way plane handle | Shear cross-sections | Drag in the evaluated end plane; `Alt` locks cage X; `Shift` locks cage Z; `Ctrl` snaps. |
+| Pink/cyan FFD points | Free-form control points | Drag selected points together; use **Box Select** or All/None/Invert for groups. |
 | Red / green trend arrows | Horizontal / vertical Bend trend | Click to choose and close; `Ctrl` keeps all choices visible. |
 | RGB diamond / ring | Positive / negative X, Y, or Z axis | Click to change axis; diamond is positive, ring is negative. |
 
@@ -182,7 +212,7 @@ The legacy section does not convert the modifier into a cage. It improves Blende
 - direct Angle/Factor, Limits, Origin, axis, and Bend-direction gizmos;
 - optional evaluated wireframe preview with configurable refresh rate;
 - animation keyframe insertion/removal for the active stage;
-- low-topology warning and one-click non-destructive subdivision;
+- low-topology warning and clear geometry guidance;
 - Mesh, Curve, Surface, Text, and Lattice entry points where Blender supports the native modifier.
 
 During a legacy gizmo drag: mouse wheel switches Origin control mode, `X/Y/Z` changes deform axis, `W` toggles wireframe preview, and `A` enters Bend-axis selection when applicable.
@@ -191,7 +221,7 @@ During a legacy gizmo drag: mouse wheel switches Origin control mode, `X/Y/Z` ch
 
 | Item | Support |
 |---|---|
-| Blender | **4.2 LTS and newer**; CI validates the minimum LTS and current supported release. |
+| Blender | **5.0.0 and newer**; CI validates the minimum supported release and the current supported release. |
 | Cage targets | Mesh, Curve, Surface, and Text. Surface targets may be prepared internally for Geometry Nodes compatibility. |
 | Lattice | Legacy Simple Deform only; the panel shows an explicit cage-not-supported notice. |
 | Deformation engine | Blender Geometry Nodes for cages; Blender Simple Deform for legacy mode. |
@@ -209,7 +239,7 @@ During a legacy gizmo drag: mouse wheel switches Origin control mode, `X/Y/Z` ch
 | Cage no longer matches the object | Select the intended stage, set its axis, then use **Align & Fit** or **Align & Fit Chain**. |
 | Chain has a discontinuity | Enable **Auto Reconnect**, use **Reconnect Chain**, and check **Gap Before** plus shared-end scale. |
 | The bottom of a chain moves unexpectedly | Confirm stages remain in chain order and use **Chained** mode with **Bottom** Origin. Reconnect before adjusting downstream segments. |
-| A handle is missing | Select the target or cage, select the relevant deformation layer, and enable the corresponding Bend Trend, Fine Direction, end, or length handle option. |
+| A handle is missing | Select the target or cage, select the relevant deformation layer, and enable the corresponding Bend Trend, Show Twist, end, or length handle option. |
 | Controls remain visible with nothing selected | Deselect all, then switch viewport mode or reselect/deselect once. If it persists, attach a minimal file to a bug report. |
 | Lattice cannot add a cage | This is intentional; use **Add Simple Deform (Legacy)**. |
 
@@ -227,7 +257,7 @@ Use the [bug report form](https://github.com/AIGODLIKE/simple_deform_helper/issu
 - console output;
 - a minimal, privacy-safe `.blend` file or short video.
 
-Pull requests should keep the extension compatible with Blender 4.2 LTS, avoid third-party runtime dependencies, update all four translation catalogs for user-facing text, and pass the repository validation workflow.
+Pull requests should keep the extension compatible with Blender 5.0+, avoid third-party runtime dependencies, update all four translation catalogs for user-facing text, and pass the repository validation workflow.
 
 ## License
 

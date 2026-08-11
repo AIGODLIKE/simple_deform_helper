@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Iterable
 
 import bpy
 from mathutils import Vector
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 RUNTIME_STAGE_OBJECT = "_simple_deform_helper_runtime_stage_object"
@@ -216,7 +220,7 @@ class StageCache:
         except Exception as exc:
             message = f"{type(exc).__name__}: {exc}"
             if message != cls._last_error:
-                print("Simple Deform Helper stage evaluation:", message)
+                _LOGGER.debug("Simple Deform Helper stage evaluation: %s", message)
                 cls._last_error = message
             return False
         finally:
@@ -241,10 +245,17 @@ class StageCache:
 
     @classmethod
     def cleanup_runtime_objects(cls):
-        for obj in tuple(bpy.data.objects):
+        try:
+            runtime_objects = tuple(bpy.data.objects)
+        except (AttributeError, ReferenceError, RuntimeError, TypeError):
+            return
+        for obj in runtime_objects:
             try:
                 is_runtime = bool(obj.get(RUNTIME_STAGE_OBJECT, False))
             except ReferenceError:
                 continue
             if is_runtime:
-                bpy.data.objects.remove(obj, do_unlink=True)
+                try:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                    pass

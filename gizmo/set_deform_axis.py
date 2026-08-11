@@ -10,26 +10,30 @@ class SetDeformGizmoGroup(GizmoGroup, GizmoGroupUtils):
 
     @classmethod
     def poll(cls, context):
-        return cls.simple_deform_show_gizmo_poll(context) and get_pref().show_set_axis_button
+        pref = get_pref()
+        return bool(
+            pref and cls.simple_deform_show_gizmo_poll(context) and
+            pref.show_set_axis_button
+        )
 
     def setup(self, context):
-        data_path = "object.modifiers.active.deform_axis"
-        set_enum = "wm.context_set_enum"
-
         for axis in ("X", "Y", "Z"):
             # show toggle axis button
             gizmo = self.gizmos.new("GIZMO_GT_button_2d")
             gizmo.icon = f"EVENT_{axis.upper()}"
             gizmo.draw_options = {"BACKDROP", "HELPLINE"}
-            ops = gizmo.target_set_operator(set_enum)
-            ops.data_path = data_path
-            ops.value = axis
+            ops = gizmo.target_set_operator(
+                "simple_deform_gizmo.set_deform_axis")
+            ops.axis = axis
             gizmo.color = (0, 0, 0)
             gizmo.alpha = 0.3
             gizmo.color_highlight = 1.0, 1.0, 1.0
             gizmo.alpha_highlight = 0.3
             gizmo.use_draw_modal = True
             gizmo.use_draw_value = True
+            # Axis buttons are interactive controls, not cage preview lines;
+            # keep their picker visible when the cage is depth-tested.
+            gizmo.use_select_background = True
             gizmo.scale_basis = 0.1
             setattr(self, f"deform_axis_{axis.lower()}", gizmo)
 

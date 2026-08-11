@@ -1,8 +1,6 @@
 import math
 
 from bpy.types import Gizmo, GizmoGroup
-from mathutils import Matrix
-
 from ..update import ChangeActiveModifierParameter
 from ..utils import GizmoUtils, GizmoGroupUtils
 
@@ -31,7 +29,8 @@ class AngleUpdate(GizmoUtils):
             if snap:
                 value = round(value * 10.0) / 10.0
 
-        self.target_set_value("value", value)
+        self._legacy_set_target_value(
+            "value", value, message="Before Traditional Angle")
 
     def update_gizmo_matrix(self, context):
         matrix = context.object.matrix_world
@@ -95,6 +94,8 @@ class AngleGizmo(Gizmo, AngleUpdate):
         context.area.header_text_set(None)
         if cancel:
             self.target_set_value("value", self.initial_value)
+        self._legacy_undo_finish(
+            cancel=cancel, message="Traditional Angle")
         self.update_multiple_modifiers_data()
         self.update_deform_wireframe(force=True)
 

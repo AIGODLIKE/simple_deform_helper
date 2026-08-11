@@ -13,7 +13,7 @@ body:
     id: addon-version
     attributes:
       label: Simple Deform Helper version
-      placeholder: 0.3.0
+      placeholder: 2.3.0
     validations:
       required: true
 

@@ -1,11 +1,11 @@
-import ast
+import logging
 import math
-import re
 import uuid
 from functools import cache
 from time import monotonic
 
 import bpy
+import gpu
 import numpy as np
 from bpy.types import AddonPreferences
 from mathutils import Vector, Matrix, Euler
@@ -13,9 +13,11 @@ from mathutils import Vector, Matrix, Euler
 from .stages import StageCache, hide_runtime_object, render_job_running
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 CONTROL_COLLECTION_NAME = "Simple Deform Controls"
 CONTROL_COLLECTION_MARKER = "_simple_deform_helper_controls"
-
 
 def _collection_contains(root, collection):
     if root == collection:
@@ -85,7 +87,11 @@ def remove_unused_control_collections():
 
 
 def get_pref():
-    return bpy.context.preferences.addons[__package__].preferences
+    try:
+        addon = bpy.context.preferences.addons.get(__package__)
+    except (AttributeError, ReferenceError, RuntimeError, TypeError):
+        return None
+    return getattr(addon, "preferences", None) if addon is not None else None
 
 
 def get_loc_matrix(location: Vector) -> Matrix:
@@ -119,22 +125,28 @@ def from_curve_get_animation_offset(obj: bpy.types.Object, default=None) -> Vect
                 sl = Vector(spline.points[0].co[:3])
                 # bpy.data.curves["BézierCircle.001"].splines[0].points[0].co[1]
             return sl
-        except Exception as e:
-            print("Curve use_path Error", e.args)
+        except Exception as error:
+            _LOGGER.debug("Curve use_path error: %s", error)
     return default
 
 
 def get_language_list() -> list:
-    """
-    Traceback (most recent call last):
-  File "<blender_console>", line 1, in <module>
-TypeError: bpy_struct: item.attr = val: enum "a" not found in ("DEFAULT", "en_US", "es", "ja_JP", "sk_SK", "vi_VN", "zh_HANS", "ar_EG", "de_DE", "fr_FR", "it_IT", "ko_KR", "pt_BR", "pt_PT", "ru_RU", "uk_UA", "zh_TW", "ab", "ca_AD", "cs_CZ", "eo", "eu_EU", "fa_IR", "ha", "he_IL", "hi_IN", "hr_HR", "hu_HU", "id_ID", "ky_KG", "nl_NL", "pl_PL", "sr_RS", "sr_RS@latin", "sv_SE", "th_TH", "tr_TR")
-    """
+    """Return Blender's language enum identifiers without changing preferences."""
+    fallback = (
+        "DEFAULT", "en_US", "es", "ja_JP", "sk_SK", "vi_VN", "zh_HANS",
+        "ar_EG", "de_DE", "fr_FR", "it_IT", "ko_KR", "pt_BR", "pt_PT",
+        "ru_RU", "uk_UA", "zh_TW", "ab", "ca_AD", "cs_CZ", "eo", "eu_EU",
+        "fa_IR", "ha", "he_IL", "hi_IN", "hr_HR", "hu_HU", "id_ID",
+        "ky_KG", "nl_NL", "pl_PL", "sr_RS", "sr_RS@latin", "sv_SE", "th_TH",
+        "tr_TR",
+    )
     try:
-        bpy.context.preferences.view.language = ""
-    except TypeError as e:
-        matches = re.findall(r"\(([^()]*)\)", e.args[-1])
-        return ast.literal_eval(f"({matches[-1]})")
+        prop = bpy.context.preferences.view.bl_rna.properties.get("language")
+        if prop is not None:
+            return [item.identifier for item in prop.enum_items]
+    except (AttributeError, RuntimeError, TypeError):
+        pass
+    return list(fallback)
 
 
 class PublicData:
@@ -245,7 +257,7 @@ class PublicPoll(PublicClass):
         if not space:
             return False
         pref = get_pref()
-        if not pref.show_gizmo:
+        if pref is None or not pref.show_gizmo:
             return False
         show_gizmo = space.show_gizmo if space.type == "VIEW_3D" else True
         is_simple = cls.poll_modifier_type_is_simple(context)
@@ -268,7 +280,10 @@ class PublicPoll(PublicClass):
         """
         Show D
         """
-        switch_axis = get_pref().display_bend_axis_switch_gizmo
+        pref = get_pref()
+        if pref is None:
+            return False
+        switch_axis = pref.display_bend_axis_switch_gizmo
         bend = cls.poll_simple_deform_modifier_is_bend(context)
         return switch_axis and bend
 
@@ -321,7 +336,7 @@ class GizmoClassMethod(PublicTranslate):
         prop = bpy.types.bpy_prop_array
         return list(
             getattr(modifier, i)[:] if type(
-                getattr(modifier, i)) == prop else getattr(modifier, i)
+                getattr(modifier, i)) is prop else getattr(modifier, i)
             for i in cls.G_MODIFIERS_PROPERTY
         )
 
@@ -526,7 +541,7 @@ class GizmoClassMethod(PublicTranslate):
             if prop_name in {"vertex_group", "invert_vertex_group"} and not include_vertex_group:
                 continue
             origin_value = getattr(old_mod, prop_name, None)
-            is_array_prop = type(origin_value) == bpy.types.bpy_prop_array
+            is_array_prop = type(origin_value) is bpy.types.bpy_prop_array
             value = origin_value[:] if is_array_prop else origin_value
             setattr(new_mod, prop_name, value)
 
@@ -550,23 +565,44 @@ class PublicProperty(GizmoClassMethod):
         origin = self.modifier.origin
         if origin:
             vector_axis = self.get_vector_axis(mod)
-            matrix = self.modifier.origin.matrix_local
-            origin_mat = matrix.to_3x3()
-            axis = origin_mat @ vector_axis
-            point_lit = [[top, bottom], [left, right], [front, back]]
-            for f in range(point_lit.__len__()):
-                i = point_lit[f][0]
-                j = point_lit[f][1]
-                angle = self.point_to_angle(i, j, f, axis)
-                if abs(angle - 180) < 0.00001:
-                    up_point, down_point = j, i
-                    up_limits, down_limits = g_l(j, i)
-                    point_lit[f][1], point_lit[f][0] = up_limits, down_limits
-                elif abs(angle) < 0.00001:
-                    up_point, down_point = i, j
-                    up_limits, down_limits = g_l(i, j)
-                    point_lit[f][0], point_lit[f][1] = up_limits, down_limits
-            [[top, bottom], [left, right], [front, back]] = point_lit
+            matrix = origin.matrix_local.copy()
+            inverse = matrix.inverted_safe()
+            corners = self.tow_co_to_coordinate(self.modifier_bound_co)
+            local_corners = tuple(inverse @ point for point in corners)
+            local_min = Vector(tuple(
+                min(point[index] for point in local_corners)
+                for index in range(3)
+            ))
+            local_max = Vector(tuple(
+                max(point[index] for point in local_corners)
+                for index in range(3)
+            ))
+            axis_index = max(
+                range(3), key=lambda index: abs(vector_axis[index]))
+            local_center = (local_min + local_max) * 0.5
+            local_up = local_center.copy()
+            local_down = local_center.copy()
+            local_up[axis_index] = local_max[axis_index]
+            local_down[axis_index] = local_min[axis_index]
+            up_point = matrix @ local_up
+            down_point = matrix @ local_down
+            up_limits, down_limits = g_l(up_point, down_point)
+
+            limited_min = local_min.copy()
+            limited_max = local_max.copy()
+            axis_size = local_max[axis_index] - local_min[axis_index]
+            limited_min[axis_index] = (
+                local_min[axis_index] + axis_size * self.modifier_down_limits)
+            limited_max[axis_index] = (
+                local_min[axis_index] + axis_size * self.modifier_up_limits)
+            limited_box = tuple(
+                matrix @ point for point in self.tow_co_to_coordinate(
+                    (limited_min, limited_max))
+            )
+            return (
+                (up_point, down_point, up_limits, down_limits),
+                limited_box,
+            )
         else:
             axis = self.modifier_deform_axis
             if "BEND" == self.modifier.deform_method:
@@ -797,7 +833,16 @@ class GizmoUpdate(PublicProperty):
         if not self.is_managed_origin(origin, obj):
             return
 
-        if origin.parent != obj:
+        if getattr(obj, "type", None) == "LATTICE":
+            # Parenting an Origin back to a Lattice creates a dependency cycle:
+            # the Lattice modifier reads the Origin while the parent's
+            # geometry evaluation reads the modifier stack. Keep this helper
+            # in world space; the runtime sync updates its position safely.
+            if origin.parent is not None:
+                world_matrix = origin.matrix_world.copy()
+                origin.parent = None
+                origin.matrix_world = world_matrix
+        elif origin.parent != obj:
             world_matrix = origin.matrix_world.copy()
             origin.parent = obj
             origin.matrix_parent_inverse = obj.matrix_world.inverted_safe()
@@ -1048,7 +1093,7 @@ class GizmoUpdate(PublicProperty):
         except Exception as exc:
             message = f"{type(exc).__name__}: {exc}"
             if self.G_DeformDrawData.get("preview_error") != message:
-                print("Simple Deform Helper preview:", message)
+                _LOGGER.debug("Simple Deform Helper preview: %s", message)
                 self.G_DeformDrawData["preview_error"] = message
             return False
         finally:
@@ -1102,19 +1147,68 @@ class GizmoUtils(GizmoUpdate):
         self.init_mouse_region_y = event.mouse_region_y
         self.init_mouse_region_x = event.mouse_region_x
 
+    @staticmethod
+    def _legacy_undo_module():
+        from .cage_deform import undo
+        return undo
+
+    def _legacy_undo_begin(self, message="Before Traditional Control"):
+        return self._legacy_undo_module().begin(self, message)
+
+    def _legacy_undo_finish(
+            self, *, cancel=False, message="Traditional Control"):
+        return self._legacy_undo_module().finish(
+            self, cancel=cancel, message=message)
+
+    def _legacy_set_target_value(
+            self, identifier, value, *, message="Before Traditional Control"):
+        try:
+            current = self.target_get_value(identifier)
+            if isinstance(current, (tuple, list)):
+                changed = any(
+                    abs(float(old) - float(new)) > 1.0e-10
+                    for old, new in zip(current, value))
+            else:
+                changed = abs(float(current) - float(value)) > 1.0e-10
+        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+            changed = True
+        if not changed:
+            return False
+        self._legacy_undo_begin(message)
+        self.target_set_value(identifier, value)
+        return True
+
     def __update_matrix_func(self, context):
         func = getattr(self, "update_gizmo_matrix", None)
         if func and self.modifier_origin_is_available:
             func(context)
 
+    def draw_interactive_custom_shape(self, shape, *, select_id=None):
+        """Draw a legacy interactive shape above scene geometry.
+
+        The ``In Front`` preference applies to cage preview wireframes, not to
+        the controls that edit them.  Traditional Gizmos predate the cage
+        viewport helper and draw directly through Blender's API, so keep their
+        depth policy explicit here as well.
+        """
+        gpu.state.depth_test_set("ALWAYS")
+        try:
+            if select_id is None:
+                self.draw_custom_shape(shape)
+            else:
+                self.draw_custom_shape(shape, select_id=select_id)
+        finally:
+            gpu.state.depth_test_set("NONE")
+
     def draw(self, context):
         if self.modifier_origin_is_available:
-            self.draw_custom_shape(self.custom_shape[self.draw_type])
+            self.draw_interactive_custom_shape(
+                self.custom_shape[self.draw_type])
             self.__update_matrix_func(context)
 
     def draw_select(self, context, select_id):
         if self.modifier_origin_is_available:
-            self.draw_custom_shape(
+            self.draw_interactive_custom_shape(
                 self.custom_shape[self.draw_type], select_id=select_id)
             self.__update_matrix_func(context)
 
@@ -1143,7 +1237,15 @@ class GizmoUtils(GizmoUpdate):
             except RuntimeError:
                 pass
         elif event.type in ("X", "Y", "Z") and event.value == "PRESS":
-            self.obj.modifiers.active.deform_axis = event.type
+            modifier = self.obj.modifiers.active
+            if modifier.deform_axis != event.type:
+                undo = self._legacy_undo_module()
+                transaction_active = id(self) in undo.ACTIVE_TRANSACTIONS
+                if not transaction_active:
+                    undo.begin(self, "Before Traditional Deform Axis")
+                modifier.deform_axis = event.type
+                if not transaction_active:
+                    undo.finish(self, message="Traditional Deform Axis")
         elif (
                 event.type == "A" and event.value == "PRESS" and
                 "BEND" == self.modifier.deform_method

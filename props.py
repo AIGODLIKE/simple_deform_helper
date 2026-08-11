@@ -7,6 +7,10 @@ from bpy.types import PropertyGroup
 from .utils import PublicData, GizmoUtils, remove_unused_control_collections
 
 
+_class_registered = False
+_registered_object_properties = []
+
+
 class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
     def _limits_up(self, context):
         if self.active_modifier_is_simple_deform:
@@ -47,10 +51,46 @@ class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
     )
 
     def update_origin_mode(self, context):
-        if self.origin_mode != "NOT":
-            return
         obj = getattr(self, "id_data", None)
         if not isinstance(obj, bpy.types.Object):
+            return
+        if self.origin_mode != "NOT":
+            if self.is_managed_origin(obj):
+                target = obj.parent
+                if target is None:
+                    owner_uuid = str(obj.get(self.G_OWNER_UUID_PROP, ""))
+                    target = next(
+                        (
+                            candidate for candidate in bpy.data.objects
+                            if str(candidate.get(self.G_OBJECT_UUID_PROP, "")) == owner_uuid
+                        ),
+                        None,
+                    )
+                modifier = next(
+                    (
+                        candidate for candidate in getattr(target, "modifiers", ())
+                        if getattr(candidate, "origin", None) == obj
+                    ),
+                    None,
+                )
+            else:
+                target = obj
+                modifier = getattr(
+                    getattr(target, "modifiers", None), "active", None)
+            if (
+                    target != getattr(context, "object", None) or
+                    modifier is None or modifier.type != "SIMPLE_DEFORM"
+            ):
+                return
+            helper = GizmoUtils()
+            if getattr(modifier, "origin", None) is None:
+                managed = helper.new_origin_empty_object(force_managed=True)
+                if managed is None:
+                    return
+                managed.SimpleDeformGizmo_PropertyGroup.origin_mode = (
+                    self.origin_mode)
+            helper.clear_point_cache()
+            helper.update_object_origin_matrix()
             return
         parent = obj.parent
         if not parent or not self.is_managed_origin(obj, parent):
@@ -78,9 +118,6 @@ class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
 
 
 def __get_rotate__(self):
-    """bpy.context.object.constraints["ViewSimpleDeformGizmo_Constraints_Limit_Rotation"]
-    bpy.data.objects["ViewSimpleDeformGizmo__Empty_1dc82ce8-378e-4b68-bbad-099f1e2625"].constraints["ViewSimpleDeformGizmo_Constraints_Limit_Rotation"].max_z
-    """
     name = PublicData.G_NAME_CON_LIMIT
     if name not in self.constraints:
         return -111
@@ -100,30 +137,62 @@ def __set_rotate__(self, value):
     setattr(con, f"min_{axis.lower()}", value)
 
 
-def register():
-    bpy.utils.register_class(SimpleDeformGizmoObjectPropertyGroup)
-    bpy.types.Object.SimpleDeformGizmo_PropertyGroup = PointerProperty(
-        type=SimpleDeformGizmoObjectPropertyGroup,
-        name="SimpleDeformGizmo_PropertyGroup")
+def _register_object_property(name, value):
+    if hasattr(bpy.types.Object, name):
+        raise RuntimeError(f"Object property already registered: {name}")
+    setattr(bpy.types.Object, name, value)
+    _registered_object_properties.append(name)
 
-    bpy.types.Object.simple_deform_helper_rotate_xyz = FloatVectorProperty(step=3, default=(0, 0, 0))
-    bpy.types.Object.simple_deform_helper_rotate_angle = FloatProperty(
-        name="Origin Object Rotate Angle",
-        default=0,
-        get=__get_rotate__,
-        set=__set_rotate__,
-        subtype="ANGLE"
-    )
-    bpy.types.Object.simple_deform_helper_rotate_axis = StringProperty(
-        name="Origin Object Rotate Axis",
-        default="Z"
-    )
+
+def _cleanup_registration():
+    global _class_registered
+    for name in reversed(tuple(_registered_object_properties)):
+        try:
+            delattr(bpy.types.Object, name)
+        except (AttributeError, RuntimeError):
+            pass
+    _registered_object_properties.clear()
+    if _class_registered:
+        try:
+            bpy.utils.unregister_class(SimpleDeformGizmoObjectPropertyGroup)
+        except (RuntimeError, ValueError):
+            pass
+        finally:
+            _class_registered = False
+
+
+def register():
+    global _class_registered
+    if _class_registered or _registered_object_properties:
+        return
+    try:
+        bpy.utils.register_class(SimpleDeformGizmoObjectPropertyGroup)
+        _class_registered = True
+        _register_object_property(
+            "SimpleDeformGizmo_PropertyGroup",
+            PointerProperty(
+                type=SimpleDeformGizmoObjectPropertyGroup,
+                name="SimpleDeformGizmo_PropertyGroup"))
+        _register_object_property(
+            "simple_deform_helper_rotate_xyz",
+            FloatVectorProperty(step=3, default=(0, 0, 0)))
+        _register_object_property(
+            "simple_deform_helper_rotate_angle",
+            FloatProperty(
+                name="Origin Object Rotate Angle",
+                default=0,
+                get=__get_rotate__,
+                set=__set_rotate__,
+                subtype="ANGLE"))
+        _register_object_property(
+            "simple_deform_helper_rotate_axis",
+            StringProperty(
+                name="Origin Object Rotate Axis",
+                default="Z"))
+    except Exception:
+        _cleanup_registration()
+        raise
 
 
 def unregister():
-    del bpy.types.Object.SimpleDeformGizmo_PropertyGroup
-
-    del bpy.types.Object.simple_deform_helper_rotate_xyz
-    del bpy.types.Object.simple_deform_helper_rotate_angle
-    del bpy.types.Object.simple_deform_helper_rotate_axis
-    bpy.utils.unregister_class(SimpleDeformGizmoObjectPropertyGroup)
+    _cleanup_registration()

@@ -1,9 +1,6 @@
-from . import panel,header
 def register():
-    panel.register()
-    header.register()
+    """Traditional controls now live only in the unified deformation stack."""
 
 
 def unregister():
-    header.unregister()
-    panel.unregister()
+    pass

@@ -3,40 +3,24 @@ from functools import cache
 import bpy
 
 from .utils import GizmoUpdate
-from .stages import StageCache, render_job_running
+from .stages import StageCache
 
 gizmo = GizmoUpdate()
 
-"""depsgraph_update_post cannot listen to users modifying modifier parameters
-Use timers to watch and use cache
+"""Compatibility state for the legacy Simple Deform gizmo helpers.
+
+Updates are driven by Blender redraws, RNA callbacks, and the cage module's
+dependency-graph handler.  This module intentionally does not start a
+persistent polling timer.
 """
 
 
 class update_public:
     _events_func_list = {}
-    run_time = 0.2
-
-    @classmethod
-    def timers_update_poll(cls) -> bool:
-        return True
-
     @classmethod
     @cache
     def update_poll(cls) -> bool:
         return True
-
-    @classmethod
-    def _update_func_call_timer(cls):
-        if render_job_running():
-            return 0.5
-        active = cls.timers_update_poll()
-        if active:
-            for c, func_list in cls._events_func_list.items():
-                if func_list and c.update_poll():
-                    for func in func_list:
-                        func()
-        cls.clear_cache_events()
-        return cls.run_time if active else 0.5
 
     @classmethod
     def clear_cache_events(cls):
@@ -62,17 +46,10 @@ class update_public:
     # ---------------   reg and unreg
     @classmethod
     def register(cls):
-        from bpy.app import timers
-        func = _timer_callback
-        if not timers.is_registered(func):
-            timers.register(func, persistent=True)
+        cls.clear_cache()
 
     @classmethod
     def unregister(cls):
-        from bpy.app import timers
-        func = _timer_callback
-        if timers.is_registered(func):
-            timers.unregister(func)
         cls._events_func_list.clear()
         cls.tmp_save_data.clear()
         StageCache.clear()
@@ -83,7 +60,7 @@ class simple_update(update_public, GizmoUpdate):
     tmp_save_data = {}
 
     @classmethod
-    def timers_update_poll(cls):
+    def context_is_active(cls):
         obj = bpy.context.object
         if not cls.poll_context_mode_is_object():
             ...
@@ -192,10 +169,6 @@ class ChangeActiveModifierParameter(simple_update):
             cls.update_modifier_parameter(parameter)
             return True
         return False
-
-
-def _timer_callback():
-    return simple_update._update_func_call_timer()
 
 
 def register():

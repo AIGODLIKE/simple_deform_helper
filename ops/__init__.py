@@ -1,16 +1,16 @@
 import bpy
 
-from .deform_axis import DeformAxisOperator
+from .deform_axis import DeformAxisOperator, SetDeformAxisOperator
 from .key_frame import KeyFrame, RemoveFrame
-from .stage import SimpleDeformStageCycle, AddSimpleDeformTopology
+from .stage import SimpleDeformStageCycle
 
 class_list = (
+    SetDeformAxisOperator,
     DeformAxisOperator,
 
     KeyFrame,
     RemoveFrame,
     SimpleDeformStageCycle,
-    AddSimpleDeformTopology,
 )
 
 register_class, unregister_class = bpy.utils.register_classes_factory(class_list)

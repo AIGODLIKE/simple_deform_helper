@@ -1,8 +1,9 @@
 import bpy
+from bpy.app.translations import pgettext_iface as iface_
 from bpy.types import Panel
 
 from ..ops import KeyFrame, RemoveFrame
-from ..ops.stage import SimpleDeformStageCycle, AddSimpleDeformTopology
+from ..ops.stage import SimpleDeformStageCycle
 from ..stages import StageCache
 from ..utils import PublicPoll, GizmoUtils, get_pref
 
@@ -31,7 +32,9 @@ class SimpleDeformPanel(Panel, Info):
 
     def draw_header(self, context):
         layout = self.layout
-        layout.prop(get_pref(), "show_gizmo", text="")
+        pref = get_pref()
+        if pref is not None:
+            layout.prop(pref, "show_gizmo", text="")
 
 
 class SimpleDeformPropertyPanel(Panel, Info):
@@ -48,6 +51,8 @@ class SimpleDeformPropertyPanel(Panel, Info):
         column = layout.column(align=True)
 
         pref = get_pref()
+        if pref is None:
+            return
 
         obj = context.object
         mod = obj.modifiers.active
@@ -63,7 +68,11 @@ class SimpleDeformPropertyPanel(Panel, Info):
                 text="", icon="TRIA_LEFT")
             previous.direction = "PREVIOUS"
         stage_row.label(
-            text=f"Stage {stage_index or 1} of {stage_count or 1}: {mod.name}",
+            text=iface_("Stage {stage_index} of {stage_count}: {modifier}").format(
+                stage_index=stage_index or 1,
+                stage_count=stage_count or 1,
+                modifier=mod.name,
+            ),
             icon="MOD_SIMPLEDEFORM")
         if stage_count > 1:
             following = stage_row.operator(
@@ -99,13 +108,12 @@ class SimpleDeformPropertyPanel(Panel, Info):
                 warning = column.box()
                 warning.alert = True
                 warning.label(
-                    text=f"Low topology on {mod.deform_axis}: {sample_count} levels",
+                    text=iface_("Low topology on {axis}: {sample_count} levels").format(
+                        axis=mod.deform_axis,
+                        sample_count=sample_count,
+                    ),
                     icon="ERROR")
                 warning.label(text="Simple Deform needs more segments to bend smoothly.")
-                if obj.type == "MESH":
-                    warning.operator(
-                        AddSimpleDeformTopology.bl_idname,
-                        icon="MOD_SUBSURF")
 
         origin_control = column.column()
         origin_control.enabled = (
@@ -157,8 +165,11 @@ class SimpleDeformAnimatedPanel(Panel, Info):
 
 
 def gizmo_panel(self, context):
+    pref = get_pref()
+    if pref is None:
+        return
     layout = self.layout
-    layout.prop(get_pref(), "show_gizmo", text="Show Simple Deform Gizmo")
+    layout.prop(pref, "show_gizmo", text="Show Simple Deform Gizmo")
 
 
 classes = [
@@ -166,14 +177,41 @@ classes = [
     SimpleDeformPropertyPanel,
     SimpleDeformAnimatedPanel
 ]
-reg_class, un_reg_class = bpy.utils.register_classes_factory(classes)
+_registered_classes = []
+_gizmo_panel_attached = False
+
+
+def _cleanup_registration():
+    global _gizmo_panel_attached
+    if _gizmo_panel_attached:
+        try:
+            bpy.types.VIEW3D_PT_gizmo_display.remove(gizmo_panel)
+        except (RuntimeError, ValueError):
+            pass
+        finally:
+            _gizmo_panel_attached = False
+    for item in reversed(tuple(_registered_classes)):
+        try:
+            bpy.utils.unregister_class(item)
+        except (RuntimeError, ValueError):
+            pass
+    _registered_classes.clear()
 
 
 def register():
-    reg_class()
-    bpy.types.VIEW3D_PT_gizmo_display.prepend(gizmo_panel)
+    global _gizmo_panel_attached
+    if _registered_classes or _gizmo_panel_attached:
+        return
+    try:
+        for item in classes:
+            bpy.utils.register_class(item)
+            _registered_classes.append(item)
+        bpy.types.VIEW3D_PT_gizmo_display.prepend(gizmo_panel)
+        _gizmo_panel_attached = True
+    except Exception:
+        _cleanup_registration()
+        raise
 
 
 def unregister():
-    bpy.types.VIEW3D_PT_gizmo_display.remove(gizmo_panel)
-    un_reg_class()
+    _cleanup_registration()
