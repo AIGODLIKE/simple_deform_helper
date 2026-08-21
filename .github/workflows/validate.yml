@@ -51,6 +51,9 @@ jobs:
       - name: Validate translated report contracts
         run: python tests/cage_chain_translation_contract.py
 
+      - name: Validate cage creation UI contract
+        run: python tests/create_cage_ui_contract.py
+
       - name: Validate source manifest
         run: >-
           "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
@@ -94,10 +97,13 @@ jobs:
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/curve_cage_asset_regression.py
 
       - name: Run multi-layer and Cage Chain regressions
-        run: >-
-          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
-          --background --factory-startup --python-exit-code 1
-          --python tests/cage_chain_regression.py
+        shell: bash
+        run: |
+          blender="${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_chain_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_end_scale_scope_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_preview_evaluator_sync_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/end_shape_drag_preview_freeze_regression.py
 
       - name: Run dedicated cage type regression
         run: >-
@@ -194,6 +200,8 @@ jobs:
           SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/unified_deform_stack_regression.py
           SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/deform_runtime_lifecycle_regression.py
           SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/cage_load_runtime_regression.py
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/chain_end_scale_scope_regression.py
+          SDH_TEST_MODULE=bl_ext.sdh_test.simple_deform_helper "$blender" --background --python-exit-code 1 --python tests/chain_preview_evaluator_sync_regression.py
           "$blender" --background --python-exit-code 1 --python tests/installed_lifecycle.py
 
   next-blender:
@@ -220,6 +228,7 @@ jobs:
         run: |
           blender="${RUNNER_TEMP}/blender-next/blender"
           python tests/cage_chain_translation_contract.py
+          python tests/create_cage_ui_contract.py
           "$blender" --command extension validate .
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/runtime_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_deform_regression.py
@@ -229,6 +238,9 @@ jobs:
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/curve_radius_twist_preset_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/curve_cage_asset_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_chain_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_end_scale_scope_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_preview_evaluator_sync_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/end_shape_drag_preview_freeze_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_type_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/ffd_lattice_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/deform_merge_regression.py

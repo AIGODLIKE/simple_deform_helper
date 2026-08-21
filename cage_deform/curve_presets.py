@@ -110,6 +110,81 @@ def apply_curve_preset(
     return True
 
 
+def resample_stations_by_arc_length(guide, properties):
+    """Distribute the existing stations evenly by guide arc length."""
+    from . import curve
+
+    spline = curve.curve_guide_spline(guide)
+    stations = getattr(properties, "curve_stations", None)
+    if spline is None or stations is None or len(stations) < 2:
+        return False
+    resolution = max(
+        int(getattr(properties, "curve_resolution", 24)) * 4, 64)
+    samples, total_length = curve._local_curve_samples(spline, resolution)
+    if len(samples) < 2 or total_length <= 1.0e-9:
+        return False
+    distances = tuple(item[0] for item in samples)
+    last_index = len(samples) - 1
+    # Keep each station's identity (scale/offset/radius/twist) while its
+    # position becomes arc-length even, ordered along the current guide.
+    order = sorted(
+        range(len(stations)),
+        key=lambda index: float(stations[index].factor))
+    from bisect import bisect_right
+    for rank, station_index in enumerate(order):
+        goal = total_length * rank / float(len(order) - 1)
+        segment = min(max(
+            bisect_right(distances, goal) - 1, 0), last_index - 1)
+        span = max(float(distances[segment + 1] - distances[segment]), 1.0e-9)
+        parameter = (
+            segment + (goal - float(distances[segment])) / span
+        ) / float(last_index)
+        stations[station_index].factor = min(max(parameter, 0.0), 1.0)
+    return True
+
+
+class SDH_OT_resample_curve_stations(Operator):
+    bl_idname = "sdh.resample_curve_stations"
+    bl_label = "Even Stations by Arc Length"
+    bl_description = (
+        "Redistribute the existing cross-section stations evenly along the "
+        "guide's arc length")
+    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        from . import core
+
+        _target, modifier, controller = core.resolve_context_deform(context)
+        properties = getattr(controller, "sdh_cage_deform", None)
+        return bool(
+            modifier is not None and properties is not None and
+            str(properties.cage_type) == "CURVE" and
+            len(getattr(properties, "curve_stations", ())) >= 2)
+
+    def execute(self, context):
+        from . import core, curve
+
+        target, modifier, controller = core.resolve_context_deform(context)
+        properties = getattr(controller, "sdh_cage_deform", None)
+        if properties is None:
+            return {"CANCELLED"}
+        guide = curve.curve_guide_object(target, modifier)
+        if guide is None:
+            return {"CANCELLED"}
+        if not resample_stations_by_arc_length(guide, properties):
+            return {"CANCELLED"}
+        core.sync_controller(
+            controller, pull_transform=False, sync_mode="push")
+        if context.area:
+            context.area.tag_redraw()
+        self.report(
+            {"INFO"},
+            iface_("Stations redistributed by arc length"),
+        )
+        return {"FINISHED"}
+
+
 class SDH_OT_apply_curve_preset(Operator):
     bl_idname = "sdh.apply_curve_preset"
     bl_label = "Apply Curve Preset"
@@ -159,4 +234,7 @@ class SDH_OT_apply_curve_preset(Operator):
         return {"FINISHED"}
 
 
-classes = (SDH_OT_apply_curve_preset,)
+classes = (
+    SDH_OT_apply_curve_preset,
+    SDH_OT_resample_curve_stations,
+)

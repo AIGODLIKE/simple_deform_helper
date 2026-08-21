@@ -254,12 +254,21 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
         col.prop(self, "wireframe_preview_fps")
 
         box = col.box()
-        for text in ("You can press the following shortcut keys when dragging values",
-                     "    Wheel:   Switch Origin Ctrl Mode",
-                     "    X,Y,Z:  Switch Modifier Deform Axis",
-                     "    W:       Switch Deform Wireframe Show",
-                     "    A:       Switch To Select Bend Axis Mode(deform_method=='BEND')",):
-            box.label(text=text)
+        box.label(text="Shortcut Cheat Sheet", icon="EVENT_OS")
+        cage = box.column(align=True)
+        cage.label(text="Cage handles (drag):")
+        cage.label(text="    Shift: precise   Ctrl: snap angle/value")
+        cage.label(text="    Boundary drag - Ctrl: move both ends, Alt: opposite ends")
+        cage.label(text="    Shear handle - Alt: X only, Shift: Z only, Ctrl: snap")
+        ffd = box.column(align=True)
+        ffd.label(text="FFD edit:")
+        ffd.label(text="    Box select points; drag any selected point moves the group")
+        ffd.label(text="    I / Alt+I: insert or delete point keys (scope preference above)")
+        ffd.label(text="    Tab: leave Native Lattice Edit and sync back")
+        legacy = box.column(align=True)
+        legacy.label(text="Traditional Simple Deform (drag):")
+        legacy.label(text="    Wheel: switch Origin mode    X/Y/Z: deform axis")
+        legacy.label(text="    W: toggle deform wireframe   A: bend axis chooser")
 
         col.prop(self, "deform_wireframe_color")
         col.prop(self, "bound_box_color")

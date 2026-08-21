@@ -267,12 +267,11 @@ def chained_creation_and_batch_edit():
         for side, sign in (("TOP", 1.0), ("BOTTOM", -1.0)):
             boundary, handle = deform.cage_boundary_points_local(
                 stage_properties, side)
-            expected = deform.deform_point_from_properties(
-                (0.0, sign * half_y, 0.0), stage_properties,
-                chain_preview=True)
-            inside = deform.deform_point_from_properties(
+            expected = deform.core.deform_point_for_display(
+                (0.0, sign * half_y, 0.0), stage_properties)
+            inside = deform.core.deform_point_for_display(
                 (0.0, sign * half_y - sign * sample, 0.0),
-                stage_properties, chain_preview=True)
+                stage_properties)
             tangent = Vector(expected) - Vector(inside)
             check(close_vector(boundary, expected, tolerance=2.0e-5),
                   f"{side} boundary handle did not follow the deformed end")

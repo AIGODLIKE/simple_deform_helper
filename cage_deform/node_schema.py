@@ -5,8 +5,10 @@ from .deform_contract import DEFORM_ORDER
 
 
 GROUP_MARKER = "_sdh_cage_deform_group"
-# Version 41 adds ordered global chain baselines around Shear and Bend.
-GROUP_VERSION = 41
+# Version 42 adds the per-stage Influence Weight input (vertex-group aware).
+# The packaged template asset carries the same version, so first cage
+# creation loads it directly instead of running the Python graph builder.
+GROUP_VERSION = 42
 
 _LEGACY_CHAIN_CORRECTION_ATTRIBUTE = "_sdh_chain_correction_attribute"
 _LEGACY_CHAIN_CORRECTION_ACTIVE = "_sdh_chain_correction_active"

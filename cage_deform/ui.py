@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from bpy.app.translations import pgettext_iface as iface_
-from bpy.types import Panel
+from bpy.types import Menu, Panel
 
 from .core import (
     FFD_LATTICE_MARKER,
@@ -55,6 +55,7 @@ _OP_ADD_CURVE_STATION = "sdh.add_curve_station"
 _OP_REMOVE_CURVE_STATION = "sdh.remove_curve_station"
 _OP_RESET_CURVE = "sdh.reset_curve_guide"
 _OP_REBIND_CURVE = "sdh.rebind_curve_reference"
+_OP_ADD_TOPOLOGY = "sdh.add_cage_topology"
 _OP_INSERT_KEYS = "sdh.insert_cage_keyframes"
 _OP_DELETE_KEYS = "sdh.delete_cage_keyframes"
 _OP_BAKE_ANIMATION = "sdh.bake_cage_animation"
@@ -64,9 +65,16 @@ _OP_SELECT_TARGET = "sdh.select_cage_target"
 _OP_TRANSFORM = "sdh.cage_transform"
 _OP_SET_AXIS = "sdh.set_cage_axis"
 _OP_DUPLICATE = "sdh.duplicate_cage_deform"
+_OP_MIRROR = "sdh.mirror_cage_deform"
 _OP_MOVE = "sdh.move_cage_deform"
 _OP_REMOVE = "sdh.remove_cage_deform"
 _OP_REMOVE_STACK = "sdh.remove_cage_stack"
+_OP_APPLY_STAGE = "sdh.apply_cage_stage"
+_OP_APPLY_STACK = "sdh.apply_cage_stack"
+_OP_SAVE_STACK_PRESET = "sdh.save_cage_stack_preset"
+_OP_LOAD_STACK_PRESET = "sdh.load_cage_stack_preset"
+_OP_DELETE_STACK_PRESET = "sdh.delete_cage_stack_preset"
+_OP_RESAMPLE_STATIONS = "sdh.resample_curve_stations"
 _OP_ADD_DEFORM_LAYER = "sdh.add_deform_layer"
 _OP_SELECT_DEFORM_LAYER = "sdh.select_deform_layer"
 _OP_EXPAND_DEFORM_LAYERS = "sdh.expand_all_deform_layers"
@@ -260,17 +268,33 @@ def _draw_deform_layer(
                 depress=axis in enabled_axes,
             )
             symmetry_axis.axis = axis
-        resolution_row = parameters.row(align=True)
-        resolution_row.enabled = not bool(
+        topology_row = parameters.row(align=True)
+        topology_row.enabled = not bool(
             getattr(properties, "ffd_native_edit_mode_active", False))
-        resolution_row.prop(properties, "ffd_resolution_u", text="U")
-        resolution_row.prop(properties, "ffd_resolution_v", text="V")
-        resolution_row.prop(properties, "ffd_resolution_w", text="W")
-        interpolation_row = parameters.row(align=True)
-        interpolation_row.enabled = resolution_row.enabled
-        interpolation_row.prop(properties, "ffd_interpolation_u", text="U")
-        interpolation_row.prop(properties, "ffd_interpolation_v", text="V")
-        interpolation_row.prop(properties, "ffd_interpolation_w", text="W")
+        linked = bool(getattr(properties, "ffd_axes_linked", True))
+        topology_row.prop(
+            properties,
+            "ffd_axes_linked",
+            text="",
+            icon="LINKED" if linked else "UNLINKED",
+            toggle=True,
+        )
+        if linked:
+            topology_row.prop(
+                properties, "ffd_resolution_linked", text="FFD Points")
+            topology_row.prop(
+                properties, "ffd_interpolation_linked", text="Interpolation")
+        else:
+            resolution_row = parameters.row(align=True)
+            resolution_row.enabled = topology_row.enabled
+            resolution_row.prop(properties, "ffd_resolution_u", text="U")
+            resolution_row.prop(properties, "ffd_resolution_v", text="V")
+            resolution_row.prop(properties, "ffd_resolution_w", text="W")
+            interpolation_row = parameters.row(align=True)
+            interpolation_row.enabled = topology_row.enabled
+            interpolation_row.prop(properties, "ffd_interpolation_u", text="U")
+            interpolation_row.prop(properties, "ffd_interpolation_v", text="V")
+            interpolation_row.prop(properties, "ffd_interpolation_w", text="W")
         guard_row = parameters.row(align=True)
         guard_row.prop(
             properties,
@@ -281,7 +305,7 @@ def _draw_deform_layer(
         points = getattr(properties, "ffd_points", ())
         if points:
             point_row = parameters.row(align=True)
-            point_row.enabled = resolution_row.enabled
+            point_row.enabled = topology_row.enabled
             point_row.prop(properties, "ffd_active_point", text="Point")
             active_index = min(max(
                 int(getattr(properties, "ffd_active_point", 0)), 0),
@@ -343,11 +367,6 @@ def _draw_deform_layer(
             behavior.prop(properties, "curve_closed")
             behavior.prop(properties, "curve_preserve_volume")
             mapping.prop(properties, "curve_resolution")
-            profile_header = mapping.row(align=True)
-            profile_header.label(
-                text="Curve Profile",
-                icon="DRIVER_ROTATIONAL_DIFFERENCE",
-            )
             global_profile = mapping.row(align=True)
             global_profile.prop(
                 properties, "curve_global_radius", text="Radius")
@@ -452,6 +471,8 @@ def _draw_deform_layer(
                 _OP_ADD_CURVE_STATION, text="", icon="ADD")
             station_actions.operator(
                 _OP_REMOVE_CURVE_STATION, text="", icon="REMOVE")
+            station_actions.operator(
+                _OP_RESAMPLE_STATIONS, text="", icon="ALIGN_JUSTIFY")
             stations = properties.curve_stations
             if stations:
                 index = min(max(
@@ -525,6 +546,19 @@ def _draw_topology_warning(layout, target, modifier, controller):
     warning.label(
         text=iface_("Simple Deform needs more segments to bend smoothly."),
     )
+    subdivide_row = warning.row(align=True)
+    subdivide_row.alert = False
+    simple = subdivide_row.operator(
+        _OP_ADD_TOPOLOGY,
+        text=iface_("Simple Subdivision"),
+        icon="MOD_SUBSURF",
+    )
+    simple.subdivision_type = "SIMPLE"
+    smooth = subdivide_row.operator(
+        _OP_ADD_TOPOLOGY,
+        text="Catmull-Clark",
+    )
+    smooth.subdivision_type = "CATMULL_CLARK"
 
 
 def _draw_deform_merge(layout, context, selected):
@@ -630,6 +664,29 @@ def _stack_viewport_controls(active_modifier, active_controller):
     return None
 
 
+def _draw_layer_keyframe_row(layout, properties):
+    """Offer active-layer keying when the cage stacks multiple layers."""
+    if properties is None:
+        return
+    if str(getattr(properties, "cage_type", "STANDARD")) != "STANDARD":
+        return
+    if len(_enabled_deform_types(properties)) < 2:
+        return
+    layer_keys = layout.row(align=True)
+    insert_layer = layer_keys.operator(
+        _OP_INSERT_KEYS,
+        text="Key Active Layer",
+        icon="KEYFRAME_HLT",
+    )
+    insert_layer.layer_only = True
+    delete_layer = layer_keys.operator(
+        _OP_DELETE_KEYS,
+        text="Delete Layer Keys",
+        icon="KEY_DEHLT",
+    )
+    delete_layer.layer_only = True
+
+
 def _draw_deformation_stack(layout, target, active_modifier, active_controller):
     """Draw cages and native Simple Deform modifiers in evaluated order."""
     stages = deform_stack_modifiers(target)
@@ -664,12 +721,25 @@ def _draw_deformation_stack(layout, target, active_modifier, active_controller):
             ),
             toggle=True,
         )
+    stack_header.operator(
+        _OP_APPLY_STACK,
+        text="",
+        icon="CHECKMARK",
+    )
     clear = stack_header.operator(
         _OP_REMOVE_STACK,
         text="",
         icon="TRASH",
     )
     clear.include_legacy = True
+
+    presets = stack.row(align=True)
+    presets.operator(
+        _OP_SAVE_STACK_PRESET, text="Save Preset", icon="FILE_TICK")
+    presets.operator(
+        _OP_LOAD_STACK_PRESET, text="Load Preset", icon="FILE_FOLDER")
+    presets.operator(
+        _OP_DELETE_STACK_PRESET, text="", icon="TRASH")
 
     for index, stage_modifier in enumerate(stages):
         row = stack.row(align=True)
@@ -754,6 +824,13 @@ def _draw_deformation_stack(layout, target, active_modifier, active_controller):
         later.index = index
         later.direction = "LATER"
         later.include_legacy = True
+        apply_stage = row.operator(
+            _OP_APPLY_STAGE,
+            text="",
+            icon="CHECKMARK",
+        )
+        apply_stage.index = index
+        apply_stage.include_legacy = True
         remove = row.operator(
             _OP_REMOVE,
             text="",
@@ -824,6 +901,10 @@ def _draw_legacy_deform_stage(layout, target, modifier):
         _OP_INSERT_KEYS, text="Insert Keys", icon="KEYFRAME")
     animation.operator(
         _OP_DELETE_KEYS, text="Delete Keys", icon="KEY_DEHLT")
+    finalize = stage.row(align=True)
+    finalize.enabled = target.type == "MESH"
+    finalize.operator(
+        _OP_APPLY_STAGE, text="Apply Stage", icon="CHECKMARK")
     bake = stage.row(align=True)
     bake.enabled = target.type != "LATTICE"
     bake.operator(
@@ -832,6 +913,40 @@ def _draw_legacy_deform_stage(layout, target, modifier):
         icon="SHAPEKEY_DATA",
     )
     return True
+
+
+class SDH_MT_add_standard_cage_type(Menu):
+    bl_idname = "SDH_MT_add_standard_cage_type"
+    bl_label = "Other Deformation"
+
+    def draw(self, _context):
+        layout = self.layout
+        layout.operator_context = "EXEC_DEFAULT"
+        for deform_type in DEFORM_TYPE_ORDER:
+            operator = layout.operator(
+                _OP_ADD,
+                text=DEFORM_TYPE_LABELS[deform_type],
+                icon=STAGE_TYPE_ICONS[deform_type],
+            )
+            operator.cage_type = "STANDARD"
+            operator.initial_deform_type = deform_type
+
+
+class SDH_MT_add_standard_chain_type(Menu):
+    bl_idname = "SDH_MT_add_standard_chain_type"
+    bl_label = "Other Deformation"
+
+    def draw(self, _context):
+        layout = self.layout
+        layout.operator_context = "EXEC_DEFAULT"
+        for deform_type in DEFORM_TYPE_ORDER:
+            operator = layout.operator(
+                _OP_ADD_CHAIN,
+                text=DEFORM_TYPE_LABELS[deform_type],
+                icon=STAGE_TYPE_ICONS[deform_type],
+            )
+            operator.cage_type = "STANDARD"
+            operator.initial_deform_type = deform_type
 
 
 class SDH_CAGE_PT_deform(Panel):
@@ -883,7 +998,7 @@ class SDH_CAGE_PT_deform(Panel):
         ):
             add = layout.operator(
                 _OP_ADD_LEGACY,
-                text="Add Simple Deform (Legacy)",
+                text="Simple Deform (Legacy)",
                 icon="MOD_SIMPLEDEFORM",
             )
             notice = layout.box()
@@ -902,34 +1017,65 @@ class SDH_CAGE_PT_deform(Panel):
             context, fallback=False)
         can_add_cage = target is not None
 
+        create = layout.box()
+        create.label(text="Create Cage", icon="ADD")
+        create_column = create.column(align=True)
         for add_cage_type, cage_label, chain_label, icon in (
-                ("STANDARD", "Add Standard Cage", "Add Standard Chain",
+                ("STANDARD", "Standard", "Standard Chain",
                  "MOD_SIMPLEDEFORM"),
-                ("SHEAR", "Add Shear Cage", "Add Shear Chain",
+                ("SHEAR", "Shear", "Shear Chain",
                  STAGE_TYPE_ICONS["SHEAR"]),
-                ("FFD", "Add FFD Cage", "Add FFD Chain",
+                ("FFD", "FFD", "FFD Chain",
                  STAGE_TYPE_ICONS["FFD"])):
-            add_row = layout.row(align=True)
+            add_row = create_column.row(align=True)
             add_row.enabled = can_add_cage
-            add = add_row.operator(_OP_ADD, text=cage_label, icon=icon)
+            add_row.operator_context = "INVOKE_DEFAULT"
+            halves = add_row.split(factor=0.5, align=True)
+            add_slot = halves.row(align=True)
+            chain_slot = halves.row(align=True)
+            if add_cage_type == "STANDARD":
+                standard_button = add_slot.split(factor=0.86, align=True)
+                add = standard_button.operator(
+                    _OP_ADD, text=cage_label, icon=icon)
+                add.initial_deform_type = "BEND"
+                deformation_menu = standard_button.operator(
+                    "wm.call_menu",
+                    text="",
+                    icon="DOWNARROW_HLT",
+                )
+                deformation_menu.name = (
+                    SDH_MT_add_standard_cage_type.bl_idname)
+                chain_button = chain_slot.split(factor=0.86, align=True)
+                chain_add = chain_button.operator(
+                    _OP_ADD_CHAIN, text=chain_label, icon="LINKED")
+                chain_add.initial_deform_type = "BEND"
+                chain_deformation_menu = chain_button.operator(
+                    "wm.call_menu",
+                    text="",
+                    icon="DOWNARROW_HLT",
+                )
+                chain_deformation_menu.name = (
+                    SDH_MT_add_standard_chain_type.bl_idname)
+            else:
+                add = add_slot.operator(_OP_ADD, text=cage_label, icon=icon)
+                chain_add = chain_slot.operator(
+                    _OP_ADD_CHAIN, text=chain_label, icon="LINKED")
             add.cage_type = add_cage_type
-            chain_add = add_row.operator(
-                _OP_ADD_CHAIN, text=chain_label, icon="LINKED")
             chain_add.cage_type = add_cage_type
-        curve_row = layout.row(align=True)
-        curve_row.enabled = can_add_cage
-        curve_add = curve_row.operator(
-            _OP_ADD, text="Add Curve Cage", icon=STAGE_TYPE_ICONS["CURVE"])
+        tail_row = create_column.row(align=True)
+        curve_slot = tail_row.row(align=True)
+        curve_slot.enabled = can_add_cage
+        curve_add = curve_slot.operator(
+            _OP_ADD, text="Curve", icon=STAGE_TYPE_ICONS["CURVE"])
         curve_add.cage_type = "CURVE"
         if target is None:
             box = layout.box()
             box.label(text="Select a supported target object first", icon="INFO")
             return
 
-        legacy_row = layout.row(align=True)
-        legacy_row.operator(
+        tail_row.operator(
             _OP_ADD_LEGACY,
-            text="Add Simple Deform (Legacy)",
+            text="Simple Deform (Legacy)",
             icon="MOD_SIMPLEDEFORM",
         )
         active_modifier = getattr(target.modifiers, "active", None)
@@ -942,10 +1088,23 @@ class SDH_CAGE_PT_deform(Panel):
         if active_modifier is not None and active_modifier.type == "SIMPLE_DEFORM":
             _draw_legacy_deform_stage(layout, target, active_modifier)
             return
-        if (
-                active_modifier is None or
-                target_resolved is None or modifier is None or controller is None
-        ):
+        if active_modifier is None or not is_cage_modifier(active_modifier):
+            # Cage controls below depend on Blender's active modifier. Keep the
+            # panel explicit when no managed Geometry Nodes stage is selected.
+            notice = layout.box()
+            notice.label(
+                text=iface_(
+                    "Current cage Geometry Nodes modifier is not selected"),
+                icon="INFO",
+            )
+            if active_modifier is not None:
+                notice.label(text=active_modifier.name, icon="MODIFIER")
+            notice.label(
+                text=iface_(
+                    "Select a stage above to edit its cage controls."),
+            )
+            return
+        if target_resolved is None or modifier is None or controller is None:
             return
 
         properties = controller.sdh_cage_deform
@@ -975,11 +1134,13 @@ class SDH_CAGE_PT_deform(Panel):
                     text="Chained cage segments keep their internal order",
                     icon="LOCKED",
                 )
-            segment_row = chain_box.row(align=True)
-            segment_row.label(text="Segment", icon="LINKED")
-            segment_row.label(text=f"{chain_index + 1} / {chain_count}")
-            segment_row.label(text="|")
-            segment_row.label(text=mode_label)
+            chain_box.label(
+                text=(
+                    f"{iface_('Segment')} {chain_index + 1} / {chain_count}"
+                    f"  ·  {iface_(mode_label)}"
+                ),
+                icon="LINKED",
+            )
             if chain_mode in {"CHAINED", "CONNECTED"}:
                 chain_box.prop(
                     properties,
@@ -1164,6 +1325,18 @@ class SDH_CAGE_PT_deform(Panel):
                     _OP_TRANSFORM, text=label, icon=icon)
                 operator.tool = tool
 
+            influence = cage.column(align=True)
+            influence.prop(properties, "influence_weight", slider=True)
+            if getattr(target, "type", None) == "MESH":
+                influence.prop_search(
+                    properties,
+                    "influence_vertex_group",
+                    target,
+                    "vertex_groups",
+                    text="Vertex Group",
+                    icon="GROUP_VERTEX",
+                )
+
             fit_row = cage.row(align=True)
             fit_chain = bool(
                 chain is not None and chain[3] in {"CHAINED", "CONNECTED"})
@@ -1209,6 +1382,17 @@ class SDH_CAGE_PT_deform(Panel):
                 icon="DUPLICATE",
             )
             actions.operator(
+                _OP_MIRROR,
+                text="Mirror",
+                icon="MOD_MIRROR",
+            )
+            stage_actions = layout.row(align=True)
+            stage_actions.operator(
+                _OP_APPLY_STAGE,
+                text="Apply Stage",
+                icon="CHECKMARK",
+            )
+            stage_actions.operator(
                 _OP_REMOVE,
                 text="Remove Stage",
                 icon="TRASH",
@@ -1224,6 +1408,7 @@ class SDH_CAGE_PT_deform(Panel):
                 text="Delete Keys",
                 icon="KEY_DEHLT",
             )
+            _draw_layer_keyframe_row(layout, properties)
             layout.operator(
                 _OP_BAKE_ANIMATION,
                 text="Bake Mesh Animation",
@@ -1318,6 +1503,17 @@ class SDH_CAGE_PT_deform(Panel):
             icon="DUPLICATE",
         )
         actions.operator(
+            _OP_MIRROR,
+            text="Mirror",
+            icon="MOD_MIRROR",
+        )
+        stage_actions = layout.row(align=True)
+        stage_actions.operator(
+            _OP_APPLY_STAGE,
+            text="Apply Stage",
+            icon="CHECKMARK",
+        )
+        stage_actions.operator(
             _OP_REMOVE,
             text="Remove Stage",
             icon="TRASH",
@@ -1333,6 +1529,7 @@ class SDH_CAGE_PT_deform(Panel):
             text="Delete Keys",
             icon="KEY_DEHLT",
         )
+        _draw_layer_keyframe_row(layout, properties)
         layout.operator(
             _OP_BAKE_ANIMATION,
             text="Bake Mesh Animation",

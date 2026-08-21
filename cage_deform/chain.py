@@ -23,6 +23,7 @@ from bpy.props import (
 from bpy.types import Operator
 from mathutils import Euler, Matrix, Vector
 
+from .deform_contract import CHAIN_GAP_MAX
 from .ffd_resolution import (
     invert_dense_matrix as _invert_dense_matrix,
     native_axis_weights as _native_ffd_axis_weights,
@@ -32,6 +33,17 @@ from .ffd_resolution import (
 
 EPSILON = 1.0e-5
 CHAIN_VERSION = 4
+
+
+def _clamp_chain_gap(value, default=0.0):
+    """Return a finite gap inside the public 0..0.99 contract."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError):
+        value = float(default)
+    if not math.isfinite(value):
+        value = float(default)
+    return min(max(value, 0.0), CHAIN_GAP_MAX)
 
 # Public keys.  Keep these stable: files and duplicated objects use them to
 # recover a chain after a reload or after a user renames a modifier.
@@ -236,13 +248,7 @@ def stage_chain_gap(modifier, default=0.0):
     authored distance from the preceding cage on its own metadata owners.
     """
     value = _stage_metadata_value(modifier, CHAIN_GAP, default)
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        value = float(default)
-    if not math.isfinite(value):
-        value = float(default)
-    return max(value, 0.0)
+    return _clamp_chain_gap(value, default)
 
 
 def stage_chain_auto_reconnect(modifier, default=True):
@@ -290,6 +296,7 @@ def _write_owner_metadata(owner, chain_uuid, index, count, mode, role, gap,
                           sync_shared_end_scale=False):
     if owner is None:
         return
+    gap = _clamp_chain_gap(gap)
     # Blender 5.2's ``NodesModifier`` deliberately disallows custom ID
     # properties, while GeometryNodeTree and Object still support them.  A
     # chain is therefore stored redundantly on the node group and controller,
@@ -544,14 +551,74 @@ def _set_global_suffix_mode(
     _call("invalidate_chain_domain_cache")
 
 
+def _release_composable_bend_baseline(target, chain_uuid):
+    """Convert an exactly-composable subdivided Bend chain to a plain chain.
+
+    Older subdivisions persisted the analytic full-cage baseline even for a
+    single Bottom-origin Bend, whose equal-curvature segments compose
+    exactly.  That baseline makes later per-stage edits evaluate as
+    first-order deltas and distorts downstream segments, so an explicit
+    Reconnect releases it and lets the chain use plain conjugated
+    composition.  Returns the number of converted stages; existing files are
+    only converted when every stage matches the exactly-composable pattern.
+    """
+    stages = chain_stages(target, chain_uuid)
+    if len(stages) < 2:
+        return 0
+    bend_mask = int(_call("deform_type_mask", ("BEND",), None, default=0) or 0)
+    if not bend_mask:
+        return 0
+    records = []
+    for stage in stages:
+        controller = _find_controller(target, stage)
+        properties = getattr(controller, "sdh_cage_deform", None)
+        if properties is None:
+            return 0
+        if not bool(_stage_metadata_value(
+                stage, CHAIN_GLOBAL_PREFIX_ACTIVE, False)):
+            return 0
+        prefix_mask = int(_stage_metadata_value(
+            stage, CHAIN_GLOBAL_PREFIX_MASK, 0) or 0)
+        baseline_mask = int(_stage_metadata_value(
+            stage, CHAIN_GLOBAL_BASELINE_MASK, prefix_mask) or 0)
+        if prefix_mask != bend_mask or baseline_mask not in (0, bend_mask):
+            return 0
+        if bool(_stage_metadata_value(
+                stage, CHAIN_GLOBAL_PROFILE_ACTIVE, False)):
+            return 0
+        if bool(_stage_metadata_value(
+                stage, CHAIN_GLOBAL_STRETCH_ACTIVE, False)):
+            return 0
+        if bool(_stage_metadata_value(
+                stage, CHAIN_GLOBAL_SUFFIX_ACTIVE, False)):
+            return 0
+        if str(_stage_metadata_value(
+                stage, CHAIN_GLOBAL_PREFIX_ORIGIN, "BOTTOM")) != "BOTTOM":
+            return 0
+        enabled = set(_call(
+            "active_deform_types", properties, default=set()) or set())
+        if enabled != {"BEND"}:
+            return 0
+        if str(getattr(properties, "origin", "BOTTOM")) != "BOTTOM":
+            return 0
+        records.append((stage, controller))
+    sync = getattr(_core(), "sync_controller", None)
+    for stage, controller in records:
+        _set_global_prefix_mode(stage, controller, active=False)
+        _set_global_suffix_mode(stage, controller, active=False)
+        _set_source_frame_mode(stage, controller, False)
+        if sync is not None:
+            try:
+                sync(controller, pull_transform=False)
+            except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                    ValueError):
+                pass
+    return len(records)
+
+
 def _write_stage_gap(modifier, controller, gap):
     """Update only the incoming-gap mirrors without rewriting chain IDs."""
-    try:
-        gap = max(float(gap), 0.0)
-    except (TypeError, ValueError):
-        gap = 0.0
-    if not math.isfinite(gap):
-        gap = 0.0
+    gap = _clamp_chain_gap(gap)
     for owner in (getattr(modifier, "node_group", None), modifier, controller):
         if owner is None:
             continue
@@ -786,6 +853,7 @@ def sync_chain_shared_end_scale(
     pointers = tuple(filter(None, (
         _pointer(source_controller), _pointer(peer_controller))))
     sync = getattr(core, "sync_controller", None)
+    sync_end_scales = getattr(core, "sync_end_scale_inputs", None)
 
     def apply_scale():
         guard.update(pointers)
@@ -794,7 +862,16 @@ def sync_chain_shared_end_scale(
                 setattr(source_properties, source_name, value)
             if not _end_scales_match(getattr(peer_properties, peer_name), value):
                 setattr(peer_properties, peer_name, value)
-            if sync is not None:
+            focused_results = None
+            if callable(sync_end_scales):
+                focused_results = (
+                    sync_end_scales(source_controller, modifier),
+                    sync_end_scales(peer_controller, peer_modifier),
+                )
+            if (
+                    focused_results is None or
+                    any(result is None for result in focused_results)
+            ) and sync is not None:
                 sync(source_controller, pull_transform=False)
                 sync(peer_controller, pull_transform=False)
             try:
@@ -822,6 +899,8 @@ def sync_chain_shared_end_scale(
                 chain_uuid,
                 start_index=dirty_index,
                 runtime_only=True,
+                transform_end_index=dirty_index + 1,
+                boundary_through_current=True,
             )
         else:
             with transaction(target, chain_uuid) as commit:
@@ -831,6 +910,8 @@ def sync_chain_shared_end_scale(
                     chain_uuid,
                     start_index=dirty_index,
                     runtime_only=True,
+                    transform_end_index=dirty_index + 1,
+                    boundary_through_current=True,
                 )
                 commit()
     else:
@@ -881,12 +962,7 @@ def set_stage_chain_gap(target, stage_or_index, gap, *, preserve_span=True,
     report = validate_chain(target, chain_uuid)
     if report["broken"] and not allow_broken:
         return None
-    try:
-        requested = max(float(gap), 0.0)
-    except (TypeError, ValueError):
-        requested = 0.0
-    if not math.isfinite(requested):
-        requested = 0.0
+    requested = _clamp_chain_gap(gap)
     controller = _find_controller(target, modifier)
     if controller is None:
         return None
@@ -1645,7 +1721,7 @@ def _rotation_from_axes(x_axis, y_axis, z_axis):
 
 
 def _local_boundary_frame(properties, side, *, chain_preview=False,
-                          extension=0.0):
+                          extension=0.0, chain_through_current=False):
     """Return a deformed cage-boundary frame in cage-local coordinates.
 
     The chain always progresses along increasing local Y.  For a bottom
@@ -1662,11 +1738,32 @@ def _local_boundary_frame(properties, side, *, chain_preview=False,
     )
 
     preview_output_frame = None
+    preview_kwargs = {}
     if chain_preview:
         controller = getattr(properties, "id_data", None)
-        preview_output_frame = _call(
-            "chain_output_frame_for_controller", controller,
-            properties=properties)
+        core = _core()
+        display_state_function = getattr(
+            core, "chain_display_preview_state", None)
+        display_state = (
+            display_state_function(
+                properties, through_current=chain_through_current)
+            if callable(display_state_function) else None)
+        if display_state:
+            current_index = int(display_state["current_index"])
+            preview_output_frame = display_state["frames"][current_index][1]
+            preview_kwargs["chain_display_state"] = display_state
+        else:
+            preview_output_frame = _call(
+                "chain_output_frame_for_controller", controller,
+                properties=properties)
+        prefix_function = getattr(
+            core, "chain_global_prefix_preview_state", None)
+        stretch_function = getattr(
+            core, "chain_global_stretch_preview_state", None)
+        if callable(prefix_function):
+            preview_kwargs["chain_prefix_state"] = prefix_function(properties)
+        if callable(stretch_function):
+            preview_kwargs["chain_stretch_state"] = stretch_function(properties)
 
     def deformed(point):
         if chain_preview:
@@ -1674,7 +1771,8 @@ def _local_boundary_frame(properties, side, *, chain_preview=False,
             if function is not None:
                 return Vector(function(
                     point, properties,
-                    preview_output_frame=preview_output_frame))
+                    preview_output_frame=preview_output_frame,
+                    **preview_kwargs))
         return _deform_point(point, properties, end_scales=end_scales)
 
     extension = max(float(extension), 0.0)
@@ -1711,11 +1809,14 @@ def _local_boundary_frame(properties, side, *, chain_preview=False,
     return endpoint, x_axis, y_axis, z_axis
 
 
-def _stage_boundary_frame(target, controller, side, *, extension=0.0):
+def _stage_boundary_frame(
+        target, controller, side, *, extension=0.0,
+        chain_through_current=False):
     """Return a deformed boundary and frame in target-local coordinates."""
     properties = controller.sdh_cage_deform
     endpoint, local_x, local_y, local_z = _local_boundary_frame(
-        properties, side, chain_preview=True, extension=extension)
+        properties, side, chain_preview=True, extension=extension,
+        chain_through_current=chain_through_current)
     matrix = _stage_local_matrix(target, controller)
     linear = matrix.to_3x3()
     endpoint = matrix @ endpoint
@@ -1728,15 +1829,20 @@ def _stage_boundary_frame(target, controller, side, *, extension=0.0):
     return endpoint, x_axis, y_axis, z_axis
 
 
-def _stage_top_frame(target, controller, *, extension=0.0):
+def _stage_top_frame(
+        target, controller, *, extension=0.0,
+        chain_through_current=False):
     """Return a top frame, optionally translated through a rigid gap."""
     if extension <= EPSILON:
-        return _stage_boundary_frame(target, controller, "TOP")
+        return _stage_boundary_frame(
+            target, controller, "TOP",
+            chain_through_current=chain_through_current)
     # The gap has no deformation owner.  Translate along the outgoing tangent
     # and retain the exact terminal frame instead of sampling a Bend/Twist/
     # Taper profile beyond the authored cage boundary.
     top_endpoint, top_x, top_y, top_z = _stage_boundary_frame(
-        target, controller, "TOP")
+        target, controller, "TOP",
+        chain_through_current=chain_through_current)
     return (
         top_endpoint + top_y * float(extension),
         top_x,
@@ -1777,7 +1883,8 @@ def _set_controller_frame(target, controller, endpoint, x_axis, y_axis, z_axis,
 
 def reconnect_chain(
         target, chain_uuid="", *, allow_broken=False, start_index=0,
-        runtime_only=False):
+        runtime_only=False, update_transforms=True,
+        transform_end_index=None, boundary_through_current=False):
     """Propagate every upstream top frame into the next stage.
 
     Returns the number of downstream stages updated.  No shape property is
@@ -1856,29 +1963,39 @@ def reconnect_chain(
                 for index in range(1, start_index + 1)
             )
     updated = 0
-    for index in range(start_index, len(stages) - 1):
-        previous = stages[index]
-        current = stages[index + 1]
-        previous_controller = controllers[index]
-        current_controller = controllers[index + 1]
-        gap = stage_chain_gap(current)
-        if source_frame_mode:
-            current_length = max(
-                abs(float(current_controller.sdh_cage_deform.size[1])), EPSILON)
-            source_cursor += gap
-            current_controller.rotation_mode = "XYZ"
-            current_controller.rotation_euler = source_rotation
-            current_controller.location = (
-                source_bottom + source_rotation_matrix @ Vector((
-                    0.0, source_cursor + current_length * 0.5, 0.0)))
-            source_cursor += current_length
-        else:
-            endpoint, x_axis, y_axis, z_axis = _stage_top_frame(
-                target, previous_controller, extension=gap)
-            _set_controller_frame(
-                target, current_controller, endpoint, x_axis, y_axis, z_axis,
-                gap=0.0)
-        updated += 1
+    if update_transforms:
+        if transform_end_index is None:
+            transform_end_index = len(stages) - 1
+        try:
+            transform_end_index = min(
+                max(int(transform_end_index), start_index), len(stages) - 1)
+        except (TypeError, ValueError):
+            transform_end_index = len(stages) - 1
+        for index in range(start_index, transform_end_index):
+            previous = stages[index]
+            current = stages[index + 1]
+            previous_controller = controllers[index]
+            current_controller = controllers[index + 1]
+            gap = stage_chain_gap(current)
+            if source_frame_mode:
+                current_length = max(
+                    abs(float(current_controller.sdh_cage_deform.size[1])),
+                    EPSILON)
+                source_cursor += gap
+                current_controller.rotation_mode = "XYZ"
+                current_controller.rotation_euler = source_rotation
+                current_controller.location = (
+                    source_bottom + source_rotation_matrix @ Vector((
+                        0.0, source_cursor + current_length * 0.5, 0.0)))
+                source_cursor += current_length
+            else:
+                endpoint, x_axis, y_axis, z_axis = _stage_top_frame(
+                    target, previous_controller, extension=gap,
+                    chain_through_current=boundary_through_current)
+                _set_controller_frame(
+                    target, current_controller, endpoint, x_axis, y_axis,
+                    z_axis, gap=0.0)
+            updated += 1
     frame_map = {}
     precompute = getattr(
         _core(), "precompute_chain_conjugation_frames", None)
@@ -3408,6 +3525,18 @@ class SDH_OT_add_cage_chain(Operator):
         ),
         default="STANDARD",
     )
+    initial_deform_type: EnumProperty(
+        name="Initial Deformation",
+        items=(
+            ("BEND", "Bend", "Create every Standard chain stage with a Bend layer"),
+            ("TWIST", "Twist", "Create every Standard chain stage with a Twist layer"),
+            ("TAPER", "Taper", "Create every Standard chain stage with a Taper layer"),
+            ("STRETCH", "Stretch", "Create every Standard chain stage with a Stretch layer"),
+            ("SHEAR", "Shear", "Create every Standard chain stage with a Shear layer"),
+        ),
+        default="BEND",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
     connection_mode: EnumProperty(
         name="Connection Mode",
         description="How neighboring cage segments handle their boundaries",
@@ -3443,7 +3572,8 @@ class SDH_OT_add_cage_chain(Operator):
         description="Distance between neighboring cage frames in target units",
         default=0.0,
         min=0.0,
-        soft_max=10.0,
+        max=CHAIN_GAP_MAX,
+        soft_max=CHAIN_GAP_MAX,
     )
     auto_reconnect: BoolProperty(
         name="Auto Reconnect",
@@ -3461,6 +3591,7 @@ class SDH_OT_add_cage_chain(Operator):
     origin: EnumProperty(
         name="Origin",
         description="Deformation reference used by every cage in the chain",
+        translation_context="SDH_Cage_Origin",
         items=(
             ("BOTTOM", "Bottom (Recommended)", "Reference the lower end of each cage"),
             ("TOP", "Top", "Reference the upper end of each cage"),
@@ -3538,6 +3669,16 @@ class SDH_OT_add_cage_chain(Operator):
         requested_cage_type = str(self.cage_type or "STANDARD")
         if requested_cage_type not in {"STANDARD", "SHEAR", "FFD"}:
             requested_cage_type = "STANDARD"
+        requested_deform_type = str(
+            self.initial_deform_type or "BEND").upper()
+        if requested_deform_type not in {
+                "BEND", "TWIST", "TAPER", "STRETCH", "SHEAR"}:
+            requested_deform_type = "BEND"
+        try:
+            explicit_deform_type = self.is_property_set(
+                "initial_deform_type")
+        except (AttributeError, TypeError):
+            explicit_deform_type = False
         active = getattr(target.modifiers, "active", None)
         previous = active if active in tuple(target.modifiers) else None
         source = _find_controller(target, active) if _is_cage_modifier(active) else None
@@ -3612,9 +3753,20 @@ class SDH_OT_add_cage_chain(Operator):
                     skip_stage_maintenance=index > 0,
                     fit_stage=False,
                     cage_type=requested_cage_type,
+                    initial_deform_type=requested_deform_type,
                 )
                 created.append((modifier, controller))
                 properties = _copy_template(controller, source, mode=mode)
+                if (
+                        requested_cage_type == "STANDARD" and
+                        (explicit_deform_type or source is None)
+                ):
+                    _call(
+                        "set_deform_layers",
+                        properties,
+                        (requested_deform_type,),
+                        context,
+                    )
                 if mode == "CHAINED":
                     properties.origin = self.origin
                 properties.auto_reconnect = bool(self.auto_reconnect)
@@ -3708,7 +3860,8 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
         ),
         default=0.0,
         min=0.0,
-        soft_max=10.0,
+        max=CHAIN_GAP_MAX,
+        soft_max=CHAIN_GAP_MAX,
     )
     auto_reconnect: BoolProperty(
         name="Auto Reconnect",
@@ -3893,6 +4046,18 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
         shear_index = (
             source_order.index("SHEAR") if "SHEAR" in source_order else -1)
         primary_index = bend_index if bend_index >= 0 else shear_index
+        # A single Bottom-origin Bend splits into exact per-segment arcs:
+        # constant curvature composes, so plain chained shares reproduce the
+        # authored shape without any analytic baseline.  Skipping the global
+        # prefix here keeps later per-stage edits mathematically exact chain
+        # composition instead of first-order deltas on the baseline, which
+        # visibly distorted downstream segments after a middle-stage edit.
+        exactly_composable_bend = (
+            not has_authored_gaps and
+            present_types == {"BEND"} and
+            source_origin == "BOTTOM" and
+            not global_profile_mode
+        )
         # With no Bend/Shear pivot, keep the complete linear stack in the
         # source frame.  The global baseline is still subtracted from each
         # stage, so later per-stage edits remain local deltas.
@@ -3905,7 +4070,8 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
             if primary_index >= 0 else ())
         global_prefix_operations = (
             bool(global_prefix_order) and
-            not has_authored_gaps)
+            not has_authored_gaps and
+            not exactly_composable_bend)
         global_suffix_operations = (
             bool(global_suffix_order) and global_prefix_operations)
 
@@ -3927,7 +4093,8 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
         suffix_pre_shear_order, suffix_post_shear_order = (
             split_around_shear(global_suffix_order))
         subdivision_source_frame = (
-            "BEND" in present_types and not global_prefix_operations)
+            "BEND" in present_types and not global_prefix_operations and
+            not exactly_composable_bend)
         # Disjoint chain stages do not compose axial Stretch
         # multiplicatively: their physical lengths add.  Splitting the scale
         # with an Nth root therefore shortens every Stretch-only, Twist,
@@ -5130,8 +5297,9 @@ class SDH_OT_batch_edit_cage_chain(Operator):
         name="Gap",
         description="Spacing before each affected downstream cage",
         default=0.0,
-        soft_min=-10.0,
-        soft_max=10.0,
+        min=0.0,
+        max=CHAIN_GAP_MAX,
+        soft_max=CHAIN_GAP_MAX,
         update=_batch_preview_property_update,
     )
     preserve_span: BoolProperty(
@@ -5369,8 +5537,11 @@ class SDH_OT_reconnect_cage_chain(Operator):
             )
             _normalize_metadata(target, chain_uuid, broken=True)
             return {"CANCELLED"}
+        # Explicit reconnect also repairs pre-2.7.49 subdivided pure-Bend
+        # chains whose analytic baseline distorted downstream edits.
+        released = _release_composable_bend_baseline(target, chain_uuid)
         updated = reconnect_chain(target, chain_uuid, allow_broken=self.allow_broken)
-        if updated <= 0:
+        if updated <= 0 and released <= 0:
             self.report(
                 {"WARNING"},
                 "; ".join(report["messages"]) or iface_(
@@ -5378,11 +5549,19 @@ class SDH_OT_reconnect_cage_chain(Operator):
             )
             return {"CANCELLED"}
         _activate(context, target)
-        self.report(
-            {"INFO"},
-            iface_("Reconnected {count} cage stages").format(
-                count=updated + 1),
-        )
+        if released:
+            self.report(
+                {"INFO"},
+                iface_(
+                    "Reconnected {count} cage stages and released the "
+                    "subdivision baseline").format(count=updated + 1),
+            )
+        else:
+            self.report(
+                {"INFO"},
+                iface_("Reconnected {count} cage stages").format(
+                    count=updated + 1),
+            )
         return {"FINISHED"}
 
 

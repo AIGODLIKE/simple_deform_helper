@@ -117,6 +117,15 @@ def native_edit_lattice(controller):
     return proxy
 
 
+def native_edit_session_live(controller):
+    """Return whether Blender still owns this controller's native edit proxy."""
+    target, modifier, owner, proxy = _resolve_session(
+        _SESSIONS.get(_session_key(controller)))
+    return bool(
+        target is not None and modifier is not None and owner == controller and
+        proxy is not None and getattr(proxy, "mode", "OBJECT") == "EDIT")
+
+
 def _remove_proxy(proxy):
     if proxy is None:
         return False
@@ -456,8 +465,12 @@ class SDH_OT_edit_ffd_native(Operator):
             return {"CANCELLED"}
         properties = controller.sdh_cage_deform
         if bool(getattr(properties, "ffd_native_edit_mode_active", False)):
-            finish_native_edit_sessions(context, restore_target=True)
-            return {"FINISHED"}
+            if native_edit_session_live(controller):
+                finish_native_edit_sessions(context, restore_target=True)
+                return {"FINISHED"}
+            # Undo and saved files restore RNA, not the temporary Python
+            # session/proxy. Clear that stale flag and enter a fresh session.
+            properties.ffd_native_edit_mode_active = False
         if not _supported(properties):
             self.report({"WARNING"}, "Native Lattice Edit is unavailable for Unlimited FFD")
             return {"CANCELLED"}

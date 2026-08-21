@@ -25,6 +25,7 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 from .curve import SDHCurvePoint, SDHCurveStation
 from .deform_contract import (  # noqa: F401 - compatibility exports
     CHAIN_BOUNDARY_EPSILON,
+    CHAIN_GAP_MAX,
     CURVE_LENGTH_VALUES,
     CURVE_MODE_VALUES,
     DEFORM_BITS,
@@ -102,6 +103,11 @@ from ..utils import (
 
 
 GROUP_NAME = "SDH Cage Deform Core"
+# Runtime copies take a leading dot so Blender hides managed groups from the
+# node-group search list and the Geometry Nodes modifier dropdown, keeping
+# user files uncluttered.  The packaged asset keeps the visible name.
+GROUP_RUNTIME_NAME = ".SDH Cage Deform Core"
+STAGE_GROUP_NAME_PREFIX = ".SDH Cage Deform "
 GROUP_LIBRARY_PATH = (
     Path(__file__).resolve().parent / "assets" / "cage_deform_core.blend")
 MODIFIER_MARKER = "_sdh_cage_deform_stage"
@@ -180,6 +186,44 @@ def ffd_handles_enabled():
     return True
 
 
+def _ffd_edit_session_live(controller):
+    """Return whether one controller owns a live persistent FFD modal."""
+    if controller is None:
+        return False
+    for operator in tuple(_FFD_MODAL_OPERATORS):
+        try:
+            if (
+                    not bool(getattr(operator, "_ffd_modal_finished", False)) and
+                    operator._controller() == controller
+            ):
+                return True
+        except (AttributeError, ReferenceError, RuntimeError, TypeError):
+            continue
+    return False
+
+
+def _reconcile_ffd_edit_session_flags():
+    """Clear undo/load-restored edit flags that have no modal owner."""
+    changed = 0
+    for controller in _data_objects_snapshot():
+        try:
+            if not is_cage_controller(controller):
+                continue
+            properties = controller.sdh_cage_deform
+            if (
+                    str(getattr(properties, "cage_type", "")) == "FFD" and
+                    bool(getattr(properties, "ffd_edit_mode_active", False)) and
+                    not _ffd_edit_session_live(controller)
+            ):
+                properties.ffd_edit_mode_active = False
+                clear_ffd_hover_entity(controller)
+                changed += 1
+        except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                ValueError):
+            continue
+    return changed
+
+
 def finish_ffd_edit_sessions(
         context=None, *, restore_target=False, include_native=True):
     """Finish every live FFD editor owned by this extension.
@@ -214,6 +258,7 @@ def finish_ffd_edit_sessions(
         except (ImportError, ReferenceError, RuntimeError, TypeError,
                 ValueError):
             pass
+    _reconcile_ffd_edit_session_flags()
     return finished
 
 
@@ -507,18 +552,6 @@ def _live_workspace_cage_type(target):
     if target is None:
         return ""
 
-    def live_ffd(controller):
-        for operator in tuple(_FFD_MODAL_OPERATORS):
-            try:
-                if (
-                        not bool(getattr(operator, "_finished", False)) and
-                        operator._controller() == controller
-                ):
-                    return True
-            except (AttributeError, ReferenceError, RuntimeError, TypeError):
-                continue
-        return False
-
     def live_curve(controller):
         try:
             from . import curve as curve_module
@@ -544,7 +577,7 @@ def _live_workspace_cage_type(target):
         if (
                 cage_type == "FFD" and
                 bool(getattr(properties, "ffd_edit_mode_active", False)) and
-                live_ffd(controller)
+                _ffd_edit_session_live(controller)
         ):
             return "FFD"
         if (
@@ -728,6 +761,8 @@ FFD_MAX_POINT_COUNT = (
     FFD_MAX_RESOLUTION_U * FFD_MAX_RESOLUTION_V * FFD_MAX_RESOLUTION_W)
 FFD_SELECTION_MODE_ORDER = ("POINT", "LINE", "FACE")
 FFD_SYMMETRY_AXIS_ORDER = ("U", "V", "W")
+FFD_INTERPOLATION_ORDER = (
+    "KEY_LINEAR", "KEY_CARDINAL", "KEY_CATMULL_ROM", "KEY_BSPLINE")
 FFD_MAX_LINE_ENTITY_COUNT = (
     (FFD_MAX_RESOLUTION_U - 1) * FFD_MAX_RESOLUTION_V *
     FFD_MAX_RESOLUTION_W +
@@ -749,6 +784,7 @@ FFD_LATTICE_MARKER = "_sdh_ffd_lattice"
 FFD_LATTICE_MODIFIER_MARKER = "_sdh_ffd_lattice_modifier"
 FFD_LATTICE_TOPOLOGY_TOKEN = "_sdh_ffd_lattice_topology_token"
 FFD_NATIVE_EDIT_PROXY_MARKER = "_sdh_ffd_native_edit_proxy"
+FFD_AXES_LINKED_KEY = "_sdh_ffd_axes_linked"
 FFD_VERTEX_GROUP_PREFIX = "_SDH_FFD_SCOPE_"
 FFD_RESOLUTION_PROP = "_sdh_ffd_resolution"
 CAGE_TYPE_MARKER = "_sdh_cage_type"
@@ -788,6 +824,7 @@ def _data_objects_available():
         return False
 
 _SYNCING = set()
+_FFD_AXES_LINK_SYNCING = set()
 # Curve presets can update several helper datablocks from one RNA callback.
 # Keep their re-entry guard separate from controller/modifier synchronization
 # so the final modifier push is not suppressed.
@@ -804,6 +841,11 @@ _CHAIN_GLOBAL_STRETCH_GUARD = set()
 _CHAIN_RECONNECTING = set()
 _CHAIN_RECONNECT_QUEUE = {}
 _CHAIN_AFFINE_FRAME_CACHE = {}
+# A wire rebuild samples dozens of points from the same chained stage. Cache
+# the immutable chain traversal plan so those points share controller lookup,
+# matrices, domains, relative end scales, and conjugation frames.
+_CHAIN_DISPLAY_STATE_CACHE = {}
+_CHAIN_DISPLAY_STATE_CACHE_LIMIT = 64
 # Hidden chain-domain inputs are read by every stage synchronisation and by
 # the affine-frame solver.  Their values only change when chain metadata,
 # gaps, global chain options, or a controller's authored size changes.  Keep
@@ -2123,7 +2165,7 @@ def _load_packaged_node_group():
             node_group.bl_idname == "GeometryNodeTree" and
             int(node_group.get(GROUP_MARKER, 0)) == GROUP_VERSION
     ):
-        node_group.name = GROUP_NAME
+        node_group.name = GROUP_RUNTIME_NAME
         return node_group
     if node_group is not None and node_group.users == 0:
         bpy.data.node_groups.remove(node_group)
@@ -2131,11 +2173,14 @@ def _load_packaged_node_group():
 
 
 def ensure_node_group():
-    node_group = bpy.data.node_groups.get(GROUP_NAME)
+    node_group = (
+        bpy.data.node_groups.get(GROUP_RUNTIME_NAME) or
+        bpy.data.node_groups.get(GROUP_NAME))
     if node_group is None:
         node_group = _load_packaged_node_group()
     if node_group is None or node_group.bl_idname != "GeometryNodeTree":
-        node_group = bpy.data.node_groups.new(GROUP_NAME, "GeometryNodeTree")
+        node_group = bpy.data.node_groups.new(
+            GROUP_RUNTIME_NAME, "GeometryNodeTree")
     if int(node_group.get(GROUP_MARKER, 0)) != GROUP_VERSION:
         build_node_group(node_group)
     elif not node_group.get(_INTERFACE_CACHE_TOKEN, ""):
@@ -2155,7 +2200,7 @@ def create_stage_node_group(template=None):
     stage_uuid = str(uuid.uuid4())
     template = template or ensure_node_group()
     node_group = template.copy()
-    node_group.name = f"SDH Cage Deform {stage_uuid[:8]}"
+    node_group.name = f"{STAGE_GROUP_NAME_PREFIX}{stage_uuid[:8]}"
     node_group[MODIFIER_MARKER] = True
     node_group[MODIFIER_UUID] = stage_uuid
     return node_group
@@ -2175,7 +2220,10 @@ def deform_point_from_properties(
         chain_profile_gap_distance=None, chain_source_coordinate=None,
         chain_source_start=None, operation_order_override=None,
         ffd_offsets_override=None, curve_deformer_override=None,
-        ignore_chain_stage_profile=False):
+        ignore_chain_stage_profile=False, chain_frames_override=None,
+        chain_domain_values_override=None,
+        evaluator_end_scales_override=None,
+        chain_stage_index_override=None):
     """Evaluate a point from controller state.
 
     Standalone cages and subdivided global-profile previews use authored end
@@ -2198,8 +2246,11 @@ def deform_point_from_properties(
     top_scale = tuple(properties.top_scale)
     bottom_scale = tuple(properties.bottom_scale)
     is_chained = str(getattr(properties, "mode", "")) == "CHAINED"
-    is_non_root_chain = (
-        is_chained and _is_non_root_chain_stage(properties))
+    is_non_root_chain = bool(
+        is_chained and (
+            int(chain_stage_index_override) > 0
+            if chain_stage_index_override is not None else
+            _is_non_root_chain_stage(properties)))
     controller = getattr(properties, "id_data", None)
     modifier = None
     has_root_output = False
@@ -2217,18 +2268,21 @@ def deform_point_from_properties(
     prefix_base_shear = (0.0, 0.0, 0.0)
     resolved_profile_gap_distance = 0.0
     if is_chained:
-        target = find_target(controller)
-        modifier = find_modifier(target, controller)
-        has_root_output = (
-            not is_non_root_chain and
-            chain_root_output_active(controller, modifier)
-        )
+        if chain_domain_values_override is None:
+            target = find_target(controller)
+            modifier = find_modifier(target, controller)
+            has_root_output = (
+                not is_non_root_chain and
+                chain_root_output_active(controller, modifier)
+            )
+            domain_values = _chain_domain_input_values(controller, modifier)
+        else:
+            domain_values = chain_domain_values_override
         # The hidden source interval metadata describes the physical spacing
         # before the next cage.  Use that spacing only for profile continuation
         # in the gap; once the next stage owns the source interval, the current
         # stage must hold its terminal Twist/Taper value.
         try:
-            domain_values = _chain_domain_input_values(controller, modifier)
             global_stretch_active = bool(
                 domain_values.get("Chain Global Stretch Active", False))
             global_prefix_active = bool(
@@ -2262,7 +2316,10 @@ def deform_point_from_properties(
     if evaluator or (
             chain_preview and is_chained and not global_profile_active
     ):
-        top_scale, bottom_scale = evaluator_end_scales(properties)
+        if evaluator_end_scales_override is None:
+            top_scale, bottom_scale = evaluator_end_scales(properties)
+        else:
+            top_scale, bottom_scale = evaluator_end_scales_override
     if global_stretch_active:
         # Stretch is represented by the single root-frame pass at the chain
         # tip.  Keep the Python reference and viewport frame sampler aligned
@@ -2305,7 +2362,9 @@ def deform_point_from_properties(
                 float(chain_profile_gap_distance), 0.0)
         except (TypeError, ValueError):
             resolved_profile_gap_distance = 0.0
-    apply_chain_frames = is_non_root_chain or has_root_output
+    apply_chain_frames = bool(
+        chain_frames_override is not None or
+        is_non_root_chain or has_root_output)
     point = Vector(point)
     if (
             evaluator and (not chain_preview or chain_frame_sampling) and
@@ -2371,12 +2430,15 @@ def deform_point_from_properties(
     # frame and therefore use the same relative scales as the evaluator.
     effective_top_offset = tuple(properties.top_offset)
     effective_bottom_offset = tuple(properties.bottom_offset)
-    if (
-            evaluator and global_profile_active and
-            (ignore_chain_stage_profile or not chain_preview)
-    ):
+    ignore_local_end_scale = bool(
+        evaluator and ignore_chain_stage_profile)
+    ignore_global_profile = bool(
+        evaluator and global_profile_active and
+        (ignore_chain_stage_profile or not chain_preview))
+    if ignore_local_end_scale or ignore_global_profile:
         top_scale = (1.0, 1.0)
         bottom_scale = (1.0, 1.0)
+    if ignore_global_profile:
         effective_top_offset = (0.0, 0.0)
         effective_bottom_offset = (0.0, 0.0)
 
@@ -2427,14 +2489,19 @@ def deform_point_from_properties(
             evaluator and apply_chain_input_offset and
             apply_chain_frames
     ):
-        chain_input_frame, chain_output_frame = (
-            chain_conjugation_frames_for_controller(
-                controller, modifier, properties))
+        if chain_frames_override is None:
+            chain_input_frame, chain_output_frame = (
+                chain_conjugation_frames_for_controller(
+                    controller, modifier, properties))
+        else:
+            chain_input_frame, chain_output_frame = chain_frames_override
     elif (
             chain_preview and
             apply_chain_frames
     ):
-        if preview_output_frame is None:
+        if chain_frames_override is not None:
+            _chain_input_frame, chain_output_frame = chain_frames_override
+        elif preview_output_frame is None:
             _input_frame, chain_output_frame = (
                 chain_conjugation_frames_for_controller(
                     controller, modifier, properties))
@@ -2451,6 +2518,7 @@ def deform_point_from_properties(
 
 _CHAIN_PREFIX_PREVIEW_UNSET = object()
 _CHAIN_STRETCH_PREVIEW_UNSET = object()
+_CHAIN_DISPLAY_PREVIEW_UNSET = object()
 
 
 def chain_global_prefix_preview_state(properties):
@@ -2852,10 +2920,303 @@ def chain_global_stretch_preview_signature(state):
     )
 
 
+def chain_display_preview_state(properties, *, through_current=False):
+    """Build one reusable cumulative-chain plan for viewport point samples."""
+    controller = getattr(properties, "id_data", None)
+    if not is_cage_controller(controller):
+        return None
+    target = find_target(controller)
+    modifier = find_modifier(target, controller)
+    if (
+            target is None or modifier is None or
+            _managed_chain_mode(controller, modifier) not in
+            {"CHAINED", "CONNECTED"}
+    ):
+        return None
+    try:
+        from . import chain as chain_module
+
+        chain_uuid = chain_module.stage_chain_uuid(modifier)
+        stages = tuple(chain_module.chain_stages(target, chain_uuid))
+        current_index = stages.index(modifier)
+        if through_current:
+            stages = stages[:current_index + 1]
+        controllers = tuple(
+            find_controller(target, stage) for stage in stages)
+        if any(item is None for item in controllers):
+            return None
+        matrices = tuple(
+            cage_local_matrix(target, item) for item in controllers)
+        domains = tuple(
+            _chain_domain_input_values(item, stage)
+            for item, stage in zip(controllers, stages))
+        source_starts = tuple(
+            float(values.get("Chain Source Start", 0.0))
+            for values in domains)
+        stage_orders = tuple(
+            tuple(ordered_deform_types(item.sdh_cage_deform))
+            for item in controllers)
+
+        def freeze(value):
+            if isinstance(value, float):
+                return value.hex()
+            if isinstance(value, (bool, int, str)) or value is None:
+                return value
+            try:
+                components = tuple(value)
+            except TypeError:
+                components = None
+            if components is not None:
+                return tuple(freeze(component) for component in components)
+            try:
+                return float(value).hex()
+            except (TypeError, ValueError, OverflowError):
+                return repr(value)
+
+        stage_signatures = []
+        for index, (item, stage, matrix, domain) in enumerate(zip(
+                controllers, stages, matrices, domains)):
+            item_properties = item.sdh_cage_deform
+            stage_signatures.append((
+                _pointer(item),
+                tuple(float(value).hex() for row in matrix for value in row),
+                freeze(item_properties.size),
+                stage_orders[index],
+                tuple(sorted(active_deform_types(item_properties))),
+                float(item_properties.bend_strength).hex(),
+                float(item_properties.bend_direction).hex(),
+                float(item_properties.twist_strength).hex(),
+                float(item_properties.taper_factor).hex(),
+                float(item_properties.stretch_factor).hex(),
+                freeze(item_properties.shear_factors),
+                str(item_properties.mode),
+                str(item_properties.origin),
+                str(getattr(item_properties, "cage_type", "STANDARD")),
+                bool(item_properties.preserve_volume),
+                bool(getattr(item_properties, "stage_enabled", True)),
+                freeze(item_properties.top_scale),
+                freeze(item_properties.bottom_scale),
+                freeze(item_properties.top_offset),
+                freeze(item_properties.bottom_offset),
+                freeze(getattr(item_properties, "ffd_offsets", ())),
+                tuple((str(key), freeze(value))
+                      for key, value in sorted(domain.items())),
+                bool(getattr(stage, "show_viewport", True)),
+            ))
+        plan_signature = (
+            "SDH_CHAIN_DISPLAY_PLAN_V2",
+            _pointer(target),
+            tuple(stage_signatures),
+        )
+
+        def stage_view(plan):
+            state = dict(plan)
+            state.update({
+                "signature": (
+                    "SDH_CHAIN_DISPLAY_PREVIEW_V2",
+                    plan_signature,
+                    current_index,
+                ),
+                "controller": controller,
+                "current_index": current_index,
+                "current_half_y": max(
+                    abs(float(properties.size[1])) * 0.5, EPSILON),
+            })
+            return state
+
+        cached = _CHAIN_DISPLAY_STATE_CACHE.get(plan_signature)
+        if cached is not None:
+            return stage_view(cached)
+
+        inverses = tuple(matrix.inverted_safe() for matrix in matrices)
+        frame_map = precompute_chain_conjugation_frames(controllers, stages)
+        frames = tuple(
+            frame_map.get(_pointer(item)) or
+            chain_conjugation_frames_for_controller(
+                item, stage, item.sdh_cage_deform)
+            for item, stage in zip(controllers, stages))
+        end_scales = tuple(
+            evaluator_end_scales(item.sdh_cage_deform, item, stage)
+            for item, stage in zip(controllers, stages))
+        prepared_stages = []
+        for index, (item, domain, item_frames, item_end_scales) in enumerate(
+                zip(controllers, domains, frames, end_scales)):
+            item_properties = item.sdh_cage_deform
+            enabled = set(active_deform_types(item_properties))
+            has_global_path = any(bool(domain.get(key, False)) for key in (
+                "Chain Global Stretch Active",
+                "Chain Global Prefix Active",
+                "Chain Global Profile Active",
+                "Chain Global Suffix Active",
+            ))
+            if has_global_path or "CURVE" in enabled:
+                prepared_stages.append(None)
+                continue
+            source_start = source_starts[index]
+            source_end = float(domain.get("Chain Source End", source_start))
+            stage_length = max(
+                abs(float(item_properties.size[1])), EPSILON)
+            prepared_stages.append({
+                "size": tuple(item_properties.size),
+                "deform_type": str(item_properties.deform_type),
+                "strength": float(item_properties.strength),
+                "factor": float(item_properties.factor),
+                "direction": float(item_properties.direction),
+                "mode": str(item_properties.mode),
+                "origin": str(item_properties.origin),
+                "preserve_volume": bool(item_properties.preserve_volume),
+                "top_scale": tuple(item_end_scales[0]),
+                "bottom_scale": tuple(item_end_scales[1]),
+                "top_offset": tuple(item_properties.top_offset),
+                "bottom_offset": tuple(item_properties.bottom_offset),
+                "stage_enabled": bool(getattr(
+                    item_properties, "stage_enabled", True)),
+                "chain_root_stage": index == 0,
+                "chain_input_frame": item_frames[0],
+                "chain_output_frame": item_frames[1],
+                "chain_source_start": source_start,
+                "chain_profile_gap_distance": max(
+                    source_end - (source_start + stage_length), 0.0),
+                "deform_types": tuple(enabled),
+                "bend_strength": float(item_properties.bend_strength),
+                "bend_direction": float(item_properties.bend_direction),
+                "twist_strength": float(item_properties.twist_strength),
+                "taper_factor": float(item_properties.taper_factor),
+                "stretch_factor": float(item_properties.stretch_factor),
+                "shear_factors": tuple(item_properties.shear_factors),
+                "ffd_offsets": tuple(getattr(
+                    item_properties, "ffd_offsets", ())),
+                "deform_order": stage_orders[index],
+                "curve_deformer": None,
+                "_prepared": True,
+            })
+        prepared_stages = tuple(prepared_stages)
+        plan = {
+            "controllers": controllers,
+            "stages": stages,
+            "matrices": matrices,
+            "inverses": inverses,
+            "domains": domains,
+            "source_starts": source_starts,
+            "stage_orders": stage_orders,
+            "frames": frames,
+            "end_scales": end_scales,
+            "prepared_stages": prepared_stages,
+            "root_half_y": max(
+                abs(float(controllers[0].sdh_cage_deform.size[1])) * 0.5,
+                EPSILON,
+            ),
+        }
+        if len(_CHAIN_DISPLAY_STATE_CACHE) >= _CHAIN_DISPLAY_STATE_CACHE_LIMIT:
+            _CHAIN_DISPLAY_STATE_CACHE.clear()
+        _CHAIN_DISPLAY_STATE_CACHE[plan_signature] = plan
+        return stage_view(plan)
+    except (
+            AttributeError, ImportError, IndexError, KeyError, ReferenceError,
+            RuntimeError, TypeError, ValueError, OverflowError,
+    ):
+        return None
+
+
+def chain_display_preview_signature(state):
+    """Return the exact cache key for one cumulative-chain display plan."""
+    return state.get("signature", ()) if state else ()
+
+
+def _chained_point_for_display(
+        point, properties, *, ffd_offsets_override=None,
+        curve_deformer_override=None, chain_display_state=None):
+    """Evaluate one visible cage point through the real cumulative chain."""
+    controller = getattr(properties, "id_data", None)
+    if not is_cage_controller(controller):
+        return None
+    state = (
+        chain_display_preview_state(properties)
+        if chain_display_state is None else chain_display_state)
+    if not state or state.get("controller") != controller:
+        return None
+    try:
+        source_point = Vector(point)
+        controllers = state["controllers"]
+        matrices = state["matrices"]
+        inverses = state["inverses"]
+        domains = state["domains"]
+        source_starts = state["source_starts"]
+        stage_index = int(state["current_index"])
+        source_coordinate = (
+            source_starts[stage_index] + float(source_point.y) +
+            float(state["current_half_y"]))
+        source_local = Vector((
+            float(source_point.x),
+            source_coordinate - source_starts[0] -
+            float(state["root_half_y"]),
+            float(source_point.z),
+        ))
+        target_point = matrices[0] @ source_local
+        for index, (
+                stage_controller, stage_matrix, inverse, source_start,
+                domain, frames, end_scales, stage_order,
+        ) in (
+                enumerate(zip(
+                    controllers, matrices, inverses, source_starts,
+                    domains, state["frames"], state["end_scales"],
+                    state["stage_orders"],
+                ))):
+            chain_eligible = bool(
+                index == 0 or
+                source_coordinate >= source_start - CHAIN_BOUNDARY_EPSILON)
+            stage_properties = stage_controller.sdh_cage_deform
+            local = inverse @ target_point
+            if not chain_eligible:
+                # Preserve the evaluator's matrix round-trip for downstream
+                # ineligible stages without paying the full property path.
+                target_point = stage_matrix @ local
+                continue
+            active_stage = stage_controller == controller
+            prepared = state["prepared_stages"][index]
+            active_override = bool(
+                active_stage and (
+                    ffd_offsets_override is not None or
+                    curve_deformer_override is not None))
+            if prepared is not None and not active_override:
+                deformed = deform_point_local(
+                    local,
+                    chain_eligible=chain_eligible,
+                    chain_source_coordinate=source_coordinate,
+                    **prepared,
+                )
+            else:
+                deformed = deform_point_from_properties(
+                    local,
+                    stage_properties,
+                    evaluator=True,
+                    chain_eligible=chain_eligible,
+                    chain_source_coordinate=source_coordinate,
+                    chain_source_start=source_start,
+                    operation_order_override=stage_order,
+                    ffd_offsets_override=(
+                        ffd_offsets_override if active_stage else None),
+                    curve_deformer_override=(
+                        curve_deformer_override if active_stage else None),
+                    chain_frames_override=frames,
+                    chain_domain_values_override=domain,
+                    evaluator_end_scales_override=end_scales,
+                    chain_stage_index_override=index,
+                )
+            target_point = stage_matrix @ Vector(deformed)
+        return inverses[stage_index] @ target_point
+    except (
+            AttributeError, ImportError, ReferenceError, RuntimeError,
+            TypeError, ValueError, OverflowError,
+    ):
+        return None
+
+
 def deform_point_for_display(
         point, properties, *, preview_output_frame=None,
         chain_prefix_state=_CHAIN_PREFIX_PREVIEW_UNSET,
         chain_stretch_state=_CHAIN_STRETCH_PREVIEW_UNSET,
+        chain_display_state=_CHAIN_DISPLAY_PREVIEW_UNSET,
         ffd_offsets_override=None, curve_deformer_override=None):
     """Evaluate one cage-local point in the final viewport display state."""
     source_point = Vector(point)
@@ -2876,6 +3237,18 @@ def deform_point_for_display(
         ):
             prefix_state = None
     if not prefix_state:
+        display_state = chain_display_state
+        if display_state is _CHAIN_DISPLAY_PREVIEW_UNSET:
+            display_state = chain_display_preview_state(properties)
+        chained_result = _chained_point_for_display(
+            source_point,
+            properties,
+            ffd_offsets_override=ffd_offsets_override,
+            curve_deformer_override=curve_deformer_override,
+            chain_display_state=display_state,
+        )
+        if chained_result is not None:
+            return Vector(chained_result)
         result = Vector(deform_point_from_properties(
             source_point,
             properties,
@@ -4283,6 +4656,57 @@ def evaluator_end_scales(properties, controller=None, modifier=None, *,
     return result(relative_top, (1.0, 1.0), True)
 
 
+def sync_end_scale_inputs(controller, modifier=None):
+    """Push only end-profile inputs during a live shared-seam drag.
+
+    A shared scale edit cannot change operation order, cage ownership, FFD
+    companions, or any transform input. Keeping this path focused avoids two
+    complete controller synchronizations per mouse event while preserving the
+    absolute authored profiles stored beside downstream relative GN sockets.
+    ``None`` means the focused path was unavailable and the caller should use
+    the full synchronizer.
+    """
+    if not is_cage_controller(controller):
+        return None
+    target = find_target(controller)
+    if modifier is None:
+        modifier = find_modifier(target, controller)
+    properties = getattr(controller, "sdh_cage_deform", None)
+    if target is None or modifier is None or properties is None:
+        return None
+    try:
+        top_scale, bottom_scale = evaluator_end_scales(
+            properties, controller, modifier)
+        values = {
+            "Top Scale": (top_scale[0], 1.0, top_scale[1]),
+            "Bottom Scale": (bottom_scale[0], 1.0, bottom_scale[1]),
+        }
+        changed = _store_authored_end_scales(modifier, properties)
+        for name, value in values.items():
+            if modifier_input_identifier(modifier, name) is None:
+                return None
+            old = modifier_input(modifier, name)
+            try:
+                old_values = tuple(old) if old is not None else ()
+            except (ReferenceError, RuntimeError, TypeError, ValueError):
+                old_values = ()
+            if len(old_values) == len(value) and all(
+                    abs(float(first) - float(second)) <= EPSILON
+                    for first, second in zip(old_values, value)
+            ):
+                continue
+            set_modifier_input(modifier, name, value)
+            changed = True
+        if changed:
+            target.update_tag()
+        return changed
+    except (
+            AttributeError, ReferenceError, RuntimeError, TypeError,
+            ValueError, OverflowError,
+    ):
+        return None
+
+
 def _enforce_chain_properties(controller, properties, modifier=None):
     """Keep a connected stage's mode/origin compatible with its chain frame."""
     if _managed_chain_mode(controller, modifier) not in {"CHAINED", "CONNECTED"}:
@@ -4881,6 +5305,7 @@ def clear_chain_reconnect_state():
     clear_ffd_scope_cache()
     _FFD_GUARD_VALID_OFFSETS.clear()
     _CHAIN_AFFINE_FRAME_CACHE.clear()
+    _CHAIN_DISPLAY_STATE_CACHE.clear()
     _CHAIN_DOMAIN_INPUT_CACHE.clear()
     _CONTROLLER_SIZE_SNAPSHOTS.clear()
     _CONTROLLER_TRANSFORM_SNAPSHOTS.clear()
@@ -6748,8 +7173,21 @@ def _finish_native_ffd_edit(properties, context):
 
 def _ffd_resolution_update(properties, context):
     pointer = _pointer(getattr(properties, "id_data", None))
-    if pointer and pointer in _SYNCING:
+    if pointer and (
+            pointer in _SYNCING or pointer in _FFD_AXES_LINK_SYNCING):
         return
+    if (
+            bool(getattr(properties, "ffd_axes_linked", True)) and
+            len({
+                int(properties.ffd_resolution_u),
+                int(properties.ffd_resolution_v),
+                int(properties.ffd_resolution_w),
+            }) != 1
+    ):
+        # Direct RNA/script edits to one axis are an explicit request for an
+        # asymmetric grid. Reflect that intent in the panel instead of showing
+        # a linked value that no longer represents the runtime lattice.
+        properties[FFD_AXES_LINKED_KEY] = False
     _finish_native_ffd_edit(properties, context)
     ensure_ffd_point_collection(properties)
     controller = getattr(properties, "id_data", None)
@@ -6790,6 +7228,19 @@ def _ffd_use_outside_update(properties, context):
 
 def _ffd_interpolation_update(properties, context):
     """Mirror the authored U/V/W basis into the native lattice data."""
+    pointer = _pointer(getattr(properties, "id_data", None))
+    if pointer and (
+            pointer in _SYNCING or pointer in _FFD_AXES_LINK_SYNCING):
+        return
+    if (
+            bool(getattr(properties, "ffd_axes_linked", True)) and
+            len({
+                str(properties.ffd_interpolation_u),
+                str(properties.ffd_interpolation_v),
+                str(properties.ffd_interpolation_w),
+            }) != 1
+    ):
+        properties[FFD_AXES_LINKED_KEY] = False
     _finish_native_ffd_edit(properties, context)
     controller = getattr(properties, "id_data", None)
     if is_cage_controller(controller):
@@ -6802,6 +7253,89 @@ def _ffd_interpolation_update(properties, context):
                     ValueError):
                 pass
     _controller_update(properties, context)
+
+
+def _ffd_axes_linked_get(properties):
+    """Default equal grids to linked while preserving asymmetric old files."""
+    if FFD_AXES_LINKED_KEY in properties:
+        return bool(properties[FFD_AXES_LINKED_KEY])
+    return (
+        len({
+            int(properties.ffd_resolution_u),
+            int(properties.ffd_resolution_v),
+            int(properties.ffd_resolution_w),
+        }) == 1 and
+        len({
+            str(properties.ffd_interpolation_u),
+            str(properties.ffd_interpolation_v),
+            str(properties.ffd_interpolation_w),
+        }) == 1
+    )
+
+
+def _ffd_axes_linked_set(properties, value):
+    properties[FFD_AXES_LINKED_KEY] = bool(value)
+
+
+def _ffd_linked_resolution_get(properties):
+    return int(properties.ffd_resolution_u)
+
+
+def _ffd_linked_resolution_set(properties, value):
+    pointer = _pointer(getattr(properties, "id_data", None))
+    _FFD_AXES_LINK_SYNCING.add(pointer)
+    try:
+        value = min(max(int(value), FFD_MIN_RESOLUTION), FFD_MAX_RESOLUTION_U)
+        properties.ffd_resolution_u = value
+        properties.ffd_resolution_v = value
+        properties.ffd_resolution_w = value
+    finally:
+        _FFD_AXES_LINK_SYNCING.discard(pointer)
+
+
+def _ffd_linked_interpolation_get(properties):
+    identifier = str(properties.ffd_interpolation_u)
+    try:
+        return FFD_INTERPOLATION_ORDER.index(identifier)
+    except ValueError:
+        return FFD_INTERPOLATION_ORDER.index("KEY_BSPLINE")
+
+
+def _ffd_linked_interpolation_set(properties, value):
+    pointer = _pointer(getattr(properties, "id_data", None))
+    _FFD_AXES_LINK_SYNCING.add(pointer)
+    try:
+        if isinstance(value, str):
+            identifier = value
+        else:
+            index = min(max(int(value), 0), len(FFD_INTERPOLATION_ORDER) - 1)
+            identifier = FFD_INTERPOLATION_ORDER[index]
+        properties.ffd_interpolation_u = identifier
+        properties.ffd_interpolation_v = identifier
+        properties.ffd_interpolation_w = identifier
+    finally:
+        _FFD_AXES_LINK_SYNCING.discard(pointer)
+
+
+def _ffd_axes_linked_update(properties, context):
+    """Link point count and interpolation, using U as the shared source."""
+    if not properties.ffd_axes_linked:
+        area = getattr(context, "area", None) if context else None
+        if area is not None:
+            area.tag_redraw()
+        return
+    pointer = _pointer(getattr(properties, "id_data", None))
+    _FFD_AXES_LINK_SYNCING.add(pointer)
+    try:
+        resolution = int(properties.ffd_resolution_u)
+        interpolation = str(properties.ffd_interpolation_u)
+        properties.ffd_resolution_v = resolution
+        properties.ffd_resolution_w = resolution
+        properties.ffd_interpolation_v = interpolation
+        properties.ffd_interpolation_w = interpolation
+    finally:
+        _FFD_AXES_LINK_SYNCING.discard(pointer)
+    _ffd_resolution_update(properties, context)
 
 
 def _ffd_guard_update(properties, context):
@@ -7707,7 +8241,7 @@ def ffd_lattice_object(target, modifier):
     return None
 
 
-def _ffd_lattice_modifier(target, modifier, lattice):
+def _ffd_lattice_modifier(target, modifier, lattice, *, create=True):
     marker = f"{getattr(modifier, 'name', '')} FFD"
     for candidate in getattr(target, "modifiers", ()):
         if (
@@ -7716,6 +8250,8 @@ def _ffd_lattice_modifier(target, modifier, lattice):
         ):
             break
     else:
+        if not create:
+            return None
         candidate = target.modifiers.new(name=marker, type="LATTICE")
         candidate.object = lattice
         candidate.strength = 1.0
@@ -8542,20 +9078,20 @@ def ensure_ffd_lattice(target, modifier, controller):
 def remove_ffd_lattice(target, modifier):
     """Remove the native lattice and its companion modifier for one stage."""
     clear_ffd_scope_cache(target, modifier)
-    marker = f"{getattr(modifier, 'name', '')} FFD"
+    modifier_uuid = cage_modifier_uuid(modifier)
     lattice = ffd_lattice_object(target, modifier)
-    for candidate in tuple(getattr(target, "modifiers", ())):
-        if (
-                getattr(candidate, "type", None) == "LATTICE" and
-                (
-                    getattr(candidate, "object", None) == lattice or
-                    str(getattr(candidate, "name", "")) == marker
-                )
-        ):
-            try:
-                target.modifiers.remove(candidate)
-            except (ReferenceError, RuntimeError):
-                pass
+    companion = (
+        _ffd_lattice_modifier(target, modifier, lattice, create=False)
+        if lattice is not None else None)
+    if (
+            companion is not None and
+            str(lattice.get(FFD_LATTICE_MODIFIER_MARKER, "")) ==
+            modifier_uuid
+    ):
+        try:
+            target.modifiers.remove(companion)
+        except (ReferenceError, RuntimeError):
+            pass
     if lattice is not None:
         try:
             bpy.data.objects.remove(lattice, do_unlink=True)
@@ -8772,6 +9308,26 @@ class SDHCageControllerProperties(PropertyGroup):
         ),
         type=SDHFFDPoint,
     )
+    ffd_axes_linked: BoolProperty(
+        name="Link U/V/W",
+        description=(
+            "Adjust FFD point counts and interpolation together; disable to "
+            "edit U, V, and W independently"
+        ),
+        default=True,
+        get=_ffd_axes_linked_get,
+        set=_ffd_axes_linked_set,
+        update=_ffd_axes_linked_update,
+    )
+    ffd_resolution_linked: IntProperty(
+        name="FFD Points",
+        description="Number of control points on all linked FFD axes",
+        min=FFD_MIN_RESOLUTION,
+        max=FFD_MAX_RESOLUTION_U,
+        get=_ffd_linked_resolution_get,
+        set=_ffd_linked_resolution_set,
+        update=_ffd_resolution_update,
+    )
     ffd_resolution_u: IntProperty(
         name="FFD U Points",
         description="Number of control points across the cage X direction",
@@ -8839,6 +9395,19 @@ class SDHCageControllerProperties(PropertyGroup):
             ("KEY_BSPLINE", "B-Spline", "B-Spline interpolation"),
         ),
         default="KEY_BSPLINE",
+        update=_ffd_interpolation_update,
+    )
+    ffd_interpolation_linked: EnumProperty(
+        name="Interpolation",
+        description="Interpolation basis on all linked FFD axes",
+        items=(
+            ("KEY_LINEAR", "Linear", "Linear interpolation"),
+            ("KEY_CARDINAL", "Cardinal", "Cardinal spline interpolation"),
+            ("KEY_CATMULL_ROM", "Catmull-Rom", "Catmull-Rom spline interpolation"),
+            ("KEY_BSPLINE", "B-Spline", "B-Spline interpolation"),
+        ),
+        get=_ffd_linked_interpolation_get,
+        set=_ffd_linked_interpolation_set,
         update=_ffd_interpolation_update,
     )
     ffd_guard_mode: EnumProperty(
@@ -8961,7 +9530,7 @@ class SDHCageControllerProperties(PropertyGroup):
         name="Active Guide Point",
         default=0,
         min=0,
-        max=63,
+        max=127,
         options={"HIDDEN"},
     )
     curve_point_global_falloff: BoolProperty(
@@ -8976,7 +9545,7 @@ class SDHCageControllerProperties(PropertyGroup):
         description="Number of evenly-spaced guide points after resampling",
         default=3,
         min=2,
-        max=64,
+        max=128,
     )
     curve_stations: CollectionProperty(
         name="Cross Sections",
@@ -9068,7 +9637,7 @@ class SDHCageControllerProperties(PropertyGroup):
         description="Number of editable Bezier points generated by the preset",
         default=9,
         min=3,
-        max=64,
+        max=128,
         update=_curve_preset_update,
     )
     curve_length_mode: EnumProperty(
@@ -9219,7 +9788,7 @@ class SDHCageControllerProperties(PropertyGroup):
     show_curve_cross_section_settings: BoolProperty(
         name="Cross Sections",
         description="Show editable Curve cross-section stations",
-        default=True,
+        default=False,
     )
     curve_edit_mode_active: BoolProperty(
         name="Native Curve Edit Mode",
@@ -9300,6 +9869,7 @@ class SDHCageControllerProperties(PropertyGroup):
     origin: EnumProperty(
         name="Origin",
         description="Starting pattern of the deformation",
+        translation_context="SDH_Cage_Origin",
         items=(
             ("BOTTOM", "Bottom", "Start at the lower cage boundary"),
             ("CENTER", "Center", "Use signed distance from the cage center"),
@@ -9365,7 +9935,8 @@ class SDHCageControllerProperties(PropertyGroup):
         ),
         default=0.0,
         min=0.0,
-        soft_max=1000.0,
+        max=CHAIN_GAP_MAX,
+        soft_max=CHAIN_GAP_MAX,
         get=_chain_gap_get,
         set=_chain_gap_set,
     )
@@ -9427,7 +9998,8 @@ class SDHCageControllerProperties(PropertyGroup):
         description="Spacing before every affected downstream cage",
         default=0.0,
         min=0.0,
-        soft_max=10.0,
+        max=CHAIN_GAP_MAX,
+        soft_max=CHAIN_GAP_MAX,
         update=_chain_batch_value_update,
     )
     chain_batch_preserve_span: BoolProperty(
@@ -9586,11 +10158,97 @@ class SDHCageControllerProperties(PropertyGroup):
         default=True,
         update=_controller_update,
     )
+    influence_weight: FloatProperty(
+        name="Influence Weight",
+        description=(
+            "Blend between the original and deformed positions for this "
+            "stage; combine with a vertex group for painted falloff"
+        ),
+        default=1.0,
+        min=0.0,
+        max=1.0,
+        subtype="FACTOR",
+        update=_controller_update,
+    )
+    influence_vertex_group: StringProperty(
+        name="Influence Vertex Group",
+        description=(
+            "Limit this stage to a vertex group; weights scale the "
+            "Influence Weight per point"
+        ),
+        default="",
+        # NOTE: must stay a plain named reference. With PEP 563 (`from
+        # __future__ import annotations`) Blender re-evaluates annotation
+        # strings at registration; a lambda would be rebuilt with eval
+        # globals that cannot resolve this module's names at call time.
+        update=_influence_vertex_group_update,
+    )
 
 
 def _target_and_modifier(controller):
     target = find_target(controller)
     return target, find_modifier(target, controller)
+
+
+def _influence_socket_identifier(modifier):
+    """Return the interface identifier of the Influence Weight input."""
+    group = getattr(modifier, "node_group", None)
+    interface = getattr(group, "interface", None)
+    for item in tuple(getattr(interface, "items_tree", ()) or ()):
+        if (
+                getattr(item, "item_type", "") == "SOCKET" and
+                getattr(item, "in_out", "") == "INPUT" and
+                str(getattr(item, "name", "")) == "Influence Weight"
+        ):
+            return str(item.identifier)
+    return ""
+
+
+def apply_influence_vertex_group(controller):
+    """Bind the stage's Influence Weight input to a named vertex group."""
+    properties = getattr(controller, "sdh_cage_deform", None)
+    if properties is None:
+        return False
+    target, modifier = _target_and_modifier(controller)
+    if modifier is None:
+        return False
+    identifier = _influence_socket_identifier(modifier)
+    if not identifier:
+        return False
+    name = str(getattr(properties, "influence_vertex_group", "") or "")
+    socket = _modifier_input_property(modifier, identifier)
+    if socket is not None and hasattr(socket, "attribute_name"):
+        # Blender 5.2+ interface: the input switches between VALUE and
+        # ATTRIBUTE modes through the wrapper's ``type`` enum.
+        try:
+            socket.attribute_name = name
+            if hasattr(socket, "type"):
+                socket.type = "ATTRIBUTE" if name else "VALUE"
+            if hasattr(socket, "use_attribute"):
+                socket.use_attribute = bool(name)
+        except (AttributeError, ReferenceError, RuntimeError, TypeError):
+            return False
+    else:
+        try:
+            # Blender 5.0/5.1 keep Boolean IDProperty keys; assigning an
+            # int raises TypeError there.
+            modifier[f"{identifier}_use_attribute"] = bool(name)
+            modifier[f"{identifier}_attribute_name"] = name
+        except (AttributeError, KeyError, ReferenceError, RuntimeError,
+                TypeError):
+            return False
+    if target is not None:
+        target.update_tag()
+    return True
+
+
+def _influence_vertex_group_update(properties, context):
+    controller = getattr(properties, "id_data", None)
+    if controller is not None:
+        apply_influence_vertex_group(controller)
+    area = getattr(context, "area", None) if context else None
+    if area is not None:
+        area.tag_redraw()
 
 
 def _animation_paths(owner):
@@ -9905,6 +10563,7 @@ def sync_controller(
             "Taper Factor": socket_taper_factor,
             "Stretch Factor": socket_stretch_factor,
             "Stage Enabled": bool(properties.stage_enabled),
+            "Influence Weight": float(properties.influence_weight),
             "Mode": MODE_VALUES[properties.mode],
             "Origin": ORIGIN_VALUES[properties.origin],
             "Preserve Volume": properties.preserve_volume,
@@ -10022,6 +10681,7 @@ def sync_controller(
                 ("Stretch Factor", "stretch_factor"),
                 ("Shear", "shear_factors"),
                 ("Stage Enabled", "stage_enabled"),
+                ("Influence Weight", "influence_weight"),
                 ("Preserve Volume", "preserve_volume"),
                 ("Curve Preserve Volume", "curve_preserve_volume"),
                 ("Curve Length Mode", "curve_control_mode"),
@@ -10112,6 +10772,9 @@ def sync_controller(
                     )
             stage_enabled = bool(modifier_input(
                 modifier, "Stage Enabled", properties.stage_enabled))
+            influence_weight = float(modifier_input(
+                modifier, "Influence Weight",
+                param_values.get("Influence Weight", 1.0)))
             # The legacy sockets remain editable for old files and scripts.
             # When only an old socket diverged, route that edit into the
             # independent parameter owned by the current single/primary type.
@@ -10256,6 +10919,8 @@ def sync_controller(
                 "FFD Corner Offsets")
             _set_if_changed(
                 "stage_enabled", stage_enabled, "Stage Enabled")
+            _set_if_changed(
+                "influence_weight", influence_weight, "Influence Weight")
             legacy_strength, legacy_factor, legacy_direction = (
                 _legacy_values_for_primary(properties))
             _set_if_changed("strength", legacy_strength, "Strength")
@@ -10508,7 +11173,7 @@ def upgrade_managed_stages():
         "Deform Type", "Mode", "Origin", "Preserve Volume", "Top Scale",
         "Bottom Scale", "Top Offset", "Bottom Offset", "Deform Types",
         "Bend Angle", "Bend Direction", "Twist Angle", "Taper Factor",
-        "Stretch Factor", "Shear", *FFD_SOCKET_NAMES,
+        "Stretch Factor", "Shear", "Influence Weight", *FFD_SOCKET_NAMES,
         "Chain Domain Attribute", "Chain Root Stage",
         "Chain Tip Stage", "Stage Enabled", "Chain Input Pivot",
         "Chain Input Inverse X", "Chain Input Inverse Y",
@@ -10538,6 +11203,12 @@ def upgrade_managed_stages():
             if not is_cage_modifier(modifier) or node_group is None:
                 continue
             _remove_legacy_chain_correction_data(target, modifier)
+            # Hide managed stage groups from node searches in older files.
+            try:
+                if not node_group.name.startswith("."):
+                    node_group.name = f".{node_group.name}"
+            except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                pass
             if int(node_group.get(GROUP_MARKER, 0)) == GROUP_VERSION:
                 continue
             values = {
@@ -11218,20 +11889,36 @@ def _runtime_load_discovery(_unused):
     schedule_runtime_bootstrap()
 
 
+@persistent
+def _runtime_undo_discovery(_unused):
+    """Rediscover cages even after the heavy undo handler was disabled."""
+    schedule_runtime_bootstrap()
+
+
 def register_runtime_discovery_handler():
-    """Install the lightweight load hook even when the current file has no cage."""
-    while _runtime_load_discovery in bpy.app.handlers.load_post:
-        bpy.app.handlers.load_post.remove(_runtime_load_discovery)
-    bpy.app.handlers.load_post.append(_runtime_load_discovery)
+    """Install lightweight discovery hooks even when no cage currently exists."""
+    callbacks = (
+        (bpy.app.handlers.load_post, _runtime_load_discovery),
+        (bpy.app.handlers.undo_post, _runtime_undo_discovery),
+        (bpy.app.handlers.redo_post, _runtime_undo_discovery),
+    )
+    for handler_list, callback in callbacks:
+        while callback in handler_list:
+            handler_list.remove(callback)
+        handler_list.append(callback)
 
 
 def unregister_runtime_discovery_handler():
-    """Remove the permanent load hook during add-on shutdown or reload."""
-    while _runtime_load_discovery in bpy.app.handlers.load_post:
-        try:
-            bpy.app.handlers.load_post.remove(_runtime_load_discovery)
-        except (RuntimeError, ValueError):
-            break
+    """Remove permanent discovery hooks during add-on shutdown or reload."""
+    for handler_list, callback in (
+            (bpy.app.handlers.load_post, _runtime_load_discovery),
+            (bpy.app.handlers.undo_post, _runtime_undo_discovery),
+            (bpy.app.handlers.redo_post, _runtime_undo_discovery)):
+        while callback in handler_list:
+            try:
+                handler_list.remove(callback)
+            except (RuntimeError, ValueError):
+                break
 
 
 def enable_runtime_handlers():
@@ -11487,6 +12174,7 @@ def _load_sync(_unused):
     global _LEGACY_MIGRATION_PENDING
     clear_chain_reconnect_state()
     _cleanup_orphans_after_object_count_change(force=True)
+    _reconcile_ffd_edit_session_flags()
     migrate_legacy_stages()
     upgrade_managed_stages()
     try:
@@ -11507,6 +12195,7 @@ def _undo_redo_sync(_unused):
     """Repair helper ownership once after Blender restores an undo state."""
     clear_ffd_scope_cache()
     _cleanup_orphans_after_object_count_change(force=True)
+    _reconcile_ffd_edit_session_flags()
     refresh_controller_display(force=True)
 
 
@@ -11842,7 +12531,8 @@ CONTROLLER_STATE_PROPERTIES = (
     "bend_strength", "bend_direction",
     "twist_strength", "taper_factor", "stretch_factor", "shear_factors",
     "ffd_offsets", "strength",
-    "ffd_resolution_u", "ffd_resolution_v", "ffd_resolution_w",
+    "ffd_axes_linked", "ffd_resolution_u", "ffd_resolution_v",
+    "ffd_resolution_w",
     "ffd_use_outside", "ffd_interpolation_u", "ffd_interpolation_v",
     "ffd_interpolation_w", "ffd_guard_mode", "ffd_active_point",
     "ffd_symmetry_enabled", "ffd_symmetry_axis",
@@ -11863,7 +12553,8 @@ CONTROLLER_STATE_PROPERTIES = (
     "show_curve_mapping_settings", "show_curve_preset_settings",
     "show_curve_edit_settings", "show_curve_cross_section_settings",
     "factor", "direction", "size", "mode",
-    "origin", "alignment", "preserve_volume", "auto_reconnect",
+    "origin", "alignment", "preserve_volume",
+    "influence_weight", "influence_vertex_group", "auto_reconnect",
     "auto_sync_upstream",
     "sync_shared_end_scale", "show_cage",
     "show_other_cages",
@@ -11989,6 +12680,8 @@ def _restore_controller_from_modifier(controller, modifier):
         properties.active_deform_layer = 0
         properties.stage_enabled = bool(
             modifier_input(modifier, "Stage Enabled", True))
+        properties.influence_weight = float(modifier_input(
+            modifier, "Influence Weight", 1.0))
         properties.bend_strength = float(modifier_input(
             modifier, "Bend Angle", legacy_strength))
         properties.bend_direction = float(modifier_input(
@@ -12184,7 +12877,7 @@ def ensure_target_stage_ownership(
                 source_curve_guide = None
         old_group = modifier.node_group
         new_group = old_group.copy()
-        new_group.name = f"SDH Cage Deform {str(uuid.uuid4())[:8]}"
+        new_group.name = f"{STAGE_GROUP_NAME_PREFIX}{str(uuid.uuid4())[:8]}"
         new_group[MODIFIER_MARKER] = True
         new_group[MODIFIER_UUID] = str(uuid.uuid4())
         modifier.node_group = new_group
@@ -12498,7 +13191,7 @@ def refresh_runtime_handler_state():
 def create_deform_stage(context, target, *, name="Cage Deform", after_modifier=None,
                         show_other_default=True, node_group_template=None,
                         skip_stage_maintenance=False, fit_stage=True,
-                        cage_type="STANDARD"):
+                        cage_type="STANDARD", initial_deform_type="BEND"):
     # A panel action can create another stage while the persistent FFD editor
     # still owns the viewport. End that session first so the new stage receives
     # the click and no stale box-selection handler survives the stack change.
@@ -12537,18 +13230,24 @@ def create_deform_stage(context, target, *, name="Cage Deform", after_modifier=N
     # Configure dedicated cage types before fitting. This makes the first
     # evaluation use the same operation the user requested, and avoids a
     # transient Standard/Bend frame being mistaken for the cage's input shape.
-    requested_cage_type = str(cage_type or "STANDARD")
-    if (
-            properties is not None and
-            requested_cage_type in CAGE_TYPES and
-            requested_cage_type != "STANDARD"
-    ):
-        properties.cage_type = requested_cage_type
-        set_deform_layers(
-            properties,
-            (CAGE_TYPE_DEFORM[requested_cage_type],),
-            context,
-        )
+    requested_cage_type = str(cage_type or "STANDARD").upper()
+    requested_initial_type = str(initial_deform_type or "BEND").upper()
+    if properties is not None and requested_cage_type in CAGE_TYPES:
+        if requested_cage_type == "STANDARD":
+            if requested_initial_type not in STANDARD_DEFORM_ORDER:
+                requested_initial_type = "BEND"
+            set_deform_layers(properties, (requested_initial_type,), context)
+            try:
+                properties.expanded_deform_layers = {requested_initial_type}
+            except (AttributeError, TypeError, ValueError):
+                pass
+        else:
+            properties.cage_type = requested_cage_type
+            set_deform_layers(
+                properties,
+                (CAGE_TYPE_DEFORM[requested_cage_type],),
+                context,
+            )
 
     previous_active = target.modifiers.active
     target.modifiers.active = modifier
@@ -12636,7 +13335,8 @@ def _selected_supported_cage_targets(context):
     )
 
 
-def _create_cage_stage_for_target(context, target, cage_type):
+def _create_cage_stage_for_target(
+        context, target, cage_type, initial_deform_type="BEND"):
     active = target.modifiers.active
     insertion_anchor = cage_stage_insertion_anchor(target, active)
     modifier, controller, _previous = create_deform_stage(
@@ -12644,6 +13344,7 @@ def _create_cage_stage_for_target(context, target, cage_type):
         target,
         after_modifier=insertion_anchor,
         cage_type=cage_type,
+        initial_deform_type=initial_deform_type,
     )
     target.modifiers.active = modifier
     return modifier, controller
@@ -12683,6 +13384,19 @@ class SDH_OT_add_cage_deform(Operator):
             ("CURVE", "Curve Cage", "Create a Bezier-guided curve cage"),
         ),
         default="STANDARD",
+    )
+
+    initial_deform_type: EnumProperty(
+        name="Initial Deformation",
+        items=(
+            ("BEND", "Bend", "Create the Standard cage with a Bend layer"),
+            ("TWIST", "Twist", "Create the Standard cage with a Twist layer"),
+            ("TAPER", "Taper", "Create the Standard cage with a Taper layer"),
+            ("STRETCH", "Stretch", "Create the Standard cage with a Stretch layer"),
+            ("SHEAR", "Shear", "Create the Standard cage with a Shear layer"),
+        ),
+        default="BEND",
+        options={"HIDDEN", "SKIP_SAVE"},
     )
 
     individual_objects: BoolProperty(
@@ -12740,7 +13454,11 @@ class SDH_OT_add_cage_deform(Operator):
             for target in selected_targets:
                 try:
                     modifier, controller = _create_cage_stage_for_target(
-                        context, target, self.cage_type)
+                        context,
+                        target,
+                        self.cage_type,
+                        self.initial_deform_type,
+                    )
                 except RuntimeError as error:
                     failures.append((target, error))
                     continue
@@ -12786,7 +13504,11 @@ class SDH_OT_add_cage_deform(Operator):
             if target is None:
                 return {"CANCELLED"}
             modifier, controller = _create_cage_stage_for_target(
-                context, target, self.cage_type)
+                context,
+                target,
+                self.cage_type,
+                self.initial_deform_type,
+            )
         except RuntimeError as error:
             if merge_target is not None:
                 try:
@@ -12868,6 +13590,77 @@ class SDH_OT_add_legacy_simple_deform(Operator):
         if context.area:
             context.area.tag_redraw()
         self.report({"INFO"}, iface_("Added legacy Simple Deform modifier"))
+        return {"FINISHED"}
+
+
+class SDH_OT_add_cage_topology(Operator):
+    bl_idname = "sdh.add_cage_topology"
+    bl_label = "Add Subdivision Before Deform"
+    bl_description = (
+        "Add a Subdivision Surface modifier before the active deformation "
+        "stage so bending has enough segments"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    subdivision_type: EnumProperty(
+        name="Type",
+        items=(
+            (
+                "SIMPLE", "Simple",
+                "Add straight loop cuts without smoothing",
+            ),
+            (
+                "CATMULL_CLARK", "Catmull-Clark",
+                "Smooth while subdividing",
+            ),
+        ),
+        default="SIMPLE",
+        options={"SKIP_SAVE"},
+    )
+
+    @classmethod
+    def poll(cls, context):
+        target = deform_stack_target_from_context(context)
+        active = getattr(getattr(target, "modifiers", None), "active", None)
+        return bool(
+            target is not None and target.type == "MESH" and
+            active in deform_stack_modifiers(target))
+
+    def execute(self, context):
+        target = deform_stack_target_from_context(context)
+        active = getattr(getattr(target, "modifiers", None), "active", None)
+        if target is None or active not in deform_stack_modifiers(target):
+            return {"CANCELLED"}
+        try:
+            stage_index = tuple(target.modifiers).index(active)
+        except (TypeError, ValueError):
+            stage_index = -1
+        subdivision = target.modifiers.new("Deform Topology", "SUBSURF")
+        subdivision.subdivision_type = self.subdivision_type
+        subdivision.levels = 2
+        subdivision.render_levels = 2
+        _activate(context, target)
+        moved = True
+        if stage_index >= 0:
+            try:
+                bpy.ops.object.modifier_move_to_index(
+                    modifier=subdivision.name, index=stage_index)
+            except RuntimeError:
+                moved = False
+        if not moved:
+            self.report(
+                {"WARNING"},
+                iface_(
+                    "Subdivision was added at the end; move it before the "
+                    "deformation stage"),
+            )
+        target.modifiers.active = active
+        ensure_ffd_companion_order(target)
+        if active.type == "SIMPLE_DEFORM":
+            StageCache.rebuild(context, target)
+        if context.area:
+            context.area.tag_redraw()
+        self.report({"INFO"}, iface_("Add Subdivision Before Deform"))
         return {"FINISHED"}
 
 
@@ -13310,6 +14103,156 @@ def ffd_transform_axis_world(cage_matrix, axis, space="GLOBAL"):
     return world_axis.normalized() if world_axis.length > EPSILON else unit_axis
 
 
+def ffd_point_tangent_local(
+        properties, point_index, positions=None, *, axis="V"):
+    """Return one current positive topology-axis tangent at an FFD point."""
+    resolution = ffd_resolution(properties)
+    count = math.prod(resolution)
+    axis = str(axis or "V").upper()
+    axis_index = {"U": 0, "V": 1, "W": 2}.get(axis)
+    if axis_index is None:
+        raise ValueError(f"Unsupported FFD tangent axis: {axis!r}")
+    fallback = Vector(tuple(
+        1.0 if component == axis_index else 0.0
+        for component in range(3)))
+    if count <= 0:
+        return fallback
+    point_index = min(max(int(point_index), 0), count - 1)
+    coordinates = list(ffd_point_coordinates(point_index, resolution))
+
+    def point_at(sample):
+        sample_coordinates = coordinates.copy()
+        sample_coordinates[axis_index] = sample
+        index = ffd_point_index(*sample_coordinates, resolution)
+        if positions is not None:
+            try:
+                return Vector(positions[index])
+            except (KeyError, IndexError, TypeError):
+                pass
+        return (
+            SDH_OT_box_select_ffd_points._point_source_local(properties, index) +
+            ffd_point_offset(properties, index))
+
+    coordinate = coordinates[axis_index]
+    lower = max(coordinate - 1, 0)
+    upper = min(coordinate + 1, resolution[axis_index] - 1)
+    tangent = point_at(upper) - point_at(lower)
+    if tangent.length <= EPSILON:
+        tangent = fallback
+    else:
+        tangent.normalize()
+    return tangent
+
+
+def ffd_tangent_slide_field(
+        properties, cage_matrix, selected_indices, positions=None, *, axis="V"):
+    """Return one topology axis's representative and per-point tangents."""
+    resolution = ffd_resolution(properties)
+    count = math.prod(resolution)
+    axis = str(axis or "V").upper()
+    axis_index = {"U": 0, "V": 1, "W": 2}.get(axis)
+    if axis_index is None:
+        raise ValueError(f"Unsupported FFD tangent axis: {axis!r}")
+    if positions is None:
+        positions = {
+            index: (
+                SDH_OT_box_select_ffd_points._point_source_local(
+                    properties, index) +
+                ffd_point_offset(properties, index))
+            for index in range(count)
+        }
+    indices = tuple(int(index) for index in positions)
+    basis = Matrix(cage_matrix).to_3x3()
+    fallback = basis @ Vector(tuple(
+        1.0 if component == axis_index else 0.0
+        for component in range(3)))
+    fallback = (
+        fallback.normalized() if fallback.length > EPSILON else
+        Vector(tuple(
+            1.0 if component == axis_index else 0.0
+            for component in range(3))))
+    field = {}
+    for index in indices:
+        tangent = basis @ ffd_point_tangent_local(
+            properties, index, positions, axis=axis)
+        field[index] = (
+            tangent.normalized() if tangent.length > EPSILON else
+            fallback.copy())
+    selected = tuple(
+        field[index] for index in selected_indices if index in field)
+    representative = sum(selected, Vector((0.0, 0.0, 0.0)))
+    if representative.length <= EPSILON:
+        representative = fallback.copy()
+    else:
+        representative.normalize()
+    if representative.dot(fallback) < 0.0:
+        representative.negate()
+    return representative, field
+
+
+def ffd_tangent_slide_fields(
+        properties, cage_matrix, selected_indices, positions=None,
+        *, axes=("U", "V", "W")):
+    """Return independent deformed tangent fields for each requested axis."""
+    return {
+        str(axis).upper(): ffd_tangent_slide_field(
+            properties,
+            cage_matrix,
+            selected_indices,
+            positions,
+            axis=str(axis).upper(),
+        )
+        for axis in axes
+    }
+
+
+def ffd_tangent_slide_axis_from_screen(
+        mouse_delta, screen_axes, *, current_axis=None, hysteresis=0.08):
+    """Choose the topology tangent line best aligned with pointer motion."""
+    mouse_delta = Vector(mouse_delta)
+    if mouse_delta.length_squared <= 1.0e-8:
+        return current_axis if current_axis in screen_axes else None
+    mouse_direction = mouse_delta.normalized()
+    scores = {}
+    for axis, direction in screen_axes.items():
+        direction = Vector(direction)
+        if direction.length_squared <= 1.0e-8:
+            continue
+        # Both signs belong to the same topology line. The signed distance is
+        # resolved separately after the line itself has been chosen.
+        scores[str(axis).upper()] = abs(
+            mouse_direction.dot(direction.normalized()))
+    if not scores:
+        return None
+    best_axis = max(scores, key=scores.get)
+    current_axis = str(current_axis).upper() if current_axis else None
+    if (
+            current_axis in scores and current_axis != best_axis and
+            scores[current_axis] + max(float(hysteresis), 0.0) >=
+            scores[best_axis]
+    ):
+        return current_axis
+    return best_axis
+
+
+def ffd_tangent_slide_values(
+        base_points, world_tangents, cage_inverse, distance, weights):
+    """Move each authored point along its own current world-space tangent."""
+    inverse = Matrix(cage_inverse).to_3x3()
+    distance = float(distance)
+    result = {}
+    for index, point in base_points.items():
+        tangent = Vector(world_tangents.get(index, (0.0, 1.0, 0.0)))
+        if tangent.length <= EPSILON:
+            tangent = Vector((0.0, 1.0, 0.0))
+        else:
+            tangent.normalize()
+        local_delta = inverse @ (tangent * distance)
+        result[index] = (
+            Vector(point) + local_delta * float(weights.get(index, 0.0)))
+    return result
+
+
 class SDH_WST_ffd_edit(WorkSpaceTool):
     bl_space_type = "VIEW_3D"
     bl_context_mode = "OBJECT"
@@ -13586,20 +14529,30 @@ class SDH_OT_box_select_ffd_points(Operator):
             if getattr(self, "_state", "") == "TRANSFORM":
                 mode = translate({
                     "MOVE": "Move",
+                    "TANGENT_SLIDE": "Tangent Slide",
                     "ROTATE": "Rotate",
                     "SCALE": "Scale",
                 }.get(getattr(self, "_transform_mode", ""), "Move"))
+                transform_mode = getattr(self, "_transform_mode", "")
                 axis = getattr(self, "_transform_axis", None)
-                if axis is None:
+                if transform_mode == "TANGENT_SLIDE":
+                    slide_axis = getattr(self, "_transform_slide_axis", None)
+                    axis_label = f" [{slide_axis}]" if slide_axis else ""
+                elif axis is None:
                     axis_label = ""
                 else:
                     axis_space = translate(str(getattr(
                         self, "_transform_axis_space", "GLOBAL")).title())
                     axis_label = f" [{('X', 'Y', 'Z')[axis]} {axis_space}]"
                 controls = translate(
-                    "Mouse Transform | X/Y/Z Global; Repeat for Cage Local | "
-                    "Shift Precise | "
-                    "Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel")
+                    "Mouse Slide Along Tangent | G Return to Move | "
+                    "Shift Precise | Ctrl Snap | Click/Enter Confirm | "
+                    "Esc/Right Mouse Cancel"
+                    if getattr(self, "_transform_mode", "") == "TANGENT_SLIDE"
+                    else
+                    "Mouse Transform | G Tangent Slide | X/Y/Z Global; "
+                    "Repeat for Cage Local | Shift Precise | Ctrl Snap | "
+                    "Click/Enter Confirm | Esc/Right Mouse Cancel")
                 if self._proportional_enabled(context):
                     settings = self._tool_settings(context)
                     falloff = translate(str(getattr(
@@ -13619,7 +14572,8 @@ class SDH_OT_box_select_ffd_points(Operator):
                     "Esc / Right Mouse cancels"))
             else:
                 area.header_text_set(translate(
-                    "FFD Edit Mode: drag blank area to box select | G Move | "
+                    "FFD Edit Mode: drag blank area to box select | G Move; "
+                    "G again Tangent Slide | "
                     "R Rotate | S Scale | Shift Add | Ctrl Subtract | "
                     "A Select All | Alt+A Clear | I Key | Alt+I Delete Key | "
                     "Alt+R Reset | "
@@ -13668,8 +14622,12 @@ class SDH_OT_box_select_ffd_points(Operator):
             return False
         cage_matrix = cage_local_matrix(target, controller)
         visible_indices = tuple(ffd_visible_indices(properties))
-        initial_points = {
+        all_initial_points = {
             index: self._point_local(properties, index)
+            for index in range(ffd_point_count(properties))
+        }
+        initial_points = {
+            index: all_initial_points[index]
             for index in visible_indices
         }
         pivot_local = Vector((0.0, 0.0, 0.0))
@@ -13697,6 +14655,14 @@ class SDH_OT_box_select_ffd_points(Operator):
             index: Vector(properties.ffd_points[index].offset)
             for index in visible_indices
         }
+        if getattr(self, "_state", "") != "TRANSFORM":
+            # G can rebase one live transform between free Move and Tangent
+            # Slide. Keep the first snapshot as the cancel target for the
+            # whole gesture instead of replacing it at every mode switch.
+            self._transform_cancel_offsets = {
+                index: value.copy()
+                for index, value in self._transform_initial_offsets.items()
+            }
         self._transform_source_points = {
             index: self._point_source_local(properties, index)
             for index in visible_indices
@@ -13827,8 +14793,12 @@ class SDH_OT_box_select_ffd_points(Operator):
         pointer = int(controller.as_pointer())
         _FFD_POINT_GUARD.add(pointer)
         try:
-            for index, value in getattr(
-                    self, "_transform_initial_offsets", {}).items():
+            cancel_offsets = getattr(
+                self, "_transform_cancel_offsets", None)
+            if cancel_offsets is None:
+                cancel_offsets = getattr(
+                    self, "_transform_initial_offsets", {})
+            for index, value in cancel_offsets.items():
                 if index < len(properties.ffd_points):
                     properties.ffd_points[index].offset = tuple(value)
         finally:
@@ -13851,6 +14821,7 @@ class SDH_OT_box_select_ffd_points(Operator):
                 active=getattr(self, "_pointer_click_active", None),
             )
         _undo.finish(self, cancel=cancel, message="FFD Control")
+        self._transform_cancel_offsets = None
         self._pointer_click_group = ()
         self._pointer_click_active = -1
         self._pointer_dragged = False
@@ -13864,6 +14835,145 @@ class SDH_OT_box_select_ffd_points(Operator):
             axis,
             getattr(self, "_transform_axis_space", "GLOBAL"),
         )
+
+    def _begin_tangent_slide(self, context, event, properties):
+        """Rebase the move onto mouse-selectable U/V/W cage tangents."""
+        current_all = {
+            index: self._point_local(properties, index)
+            for index in range(ffd_point_count(properties))
+        }
+        current_visible = {
+            index: current_all[index]
+            for index in getattr(self, "_transform_indices", ())
+            if index in current_all
+        }
+        selected = tuple(getattr(self, "_transform_selected_indices", ()))
+        if not current_visible or not selected:
+            return False
+        fields = ffd_tangent_slide_fields(
+            properties,
+            self._transform_cage_matrix,
+            selected,
+            current_all,
+        )
+        selected_points = tuple(
+            current_visible[index] for index in selected
+            if index in current_visible)
+        if not selected_points:
+            return False
+        pivot_local = (
+            sum(selected_points, Vector((0.0, 0.0, 0.0))) /
+            len(selected_points))
+        self._transform_mode = "TANGENT_SLIDE"
+        self._transform_axis = None
+        self._transform_slide_base_points = current_visible
+        self._transform_slide_world_axes = {
+            axis: representative
+            for axis, (representative, _tangents) in fields.items()
+        }
+        self._transform_slide_world_tangent_fields = {
+            axis: {
+                index: tangents[index]
+                for index in current_visible if index in tangents
+            }
+            for axis, (_representative, tangents) in fields.items()
+        }
+        self._transform_slide_axis = None
+        # Keep the previous single-field attributes available for callers that
+        # inspect the live modal before the first directional mouse movement.
+        fallback_axis = "V" if "V" in fields else next(iter(fields))
+        self._transform_slide_world_axis = (
+            self._transform_slide_world_axes[fallback_axis])
+        self._transform_slide_world_tangents = (
+            self._transform_slide_world_tangent_fields[fallback_axis])
+        self._transform_slide_pivot_world = (
+            self._transform_cage_matrix @ pivot_local)
+        self._transform_slide_initial_mouse = Vector(
+            self._region_position(self._window_region, event))
+        self._set_header(context)
+        return True
+
+    def _tangent_slide_screen_axes(self):
+        """Project every usable slide candidate into the current region."""
+        from bpy_extras import view3d_utils
+
+        pivot = Vector(self._transform_slide_pivot_world)
+        pivot_screen = view3d_utils.location_3d_to_region_2d(
+            self._window_region, self._region_data, pivot)
+        if pivot_screen is None:
+            return {}
+        screen_axes = {}
+        for axis, world_axis in getattr(
+                self, "_transform_slide_world_axes", {}).items():
+            tangent_screen = view3d_utils.location_3d_to_region_2d(
+                self._window_region,
+                self._region_data,
+                pivot + Vector(world_axis),
+            )
+            if tangent_screen is None:
+                continue
+            screen_axis = Vector(tangent_screen) - Vector(pivot_screen)
+            if screen_axis.length_squared > 1.0e-4:
+                screen_axes[axis] = screen_axis
+        return screen_axes
+
+    def _select_tangent_slide_axis(self, context, current_mouse):
+        """Update the active topology line from the current pointer intent."""
+        mouse_delta = (
+            Vector(current_mouse) -
+            Vector(self._transform_slide_initial_mouse))
+        current_axis = getattr(self, "_transform_slide_axis", None)
+        if mouse_delta.length_squared < 4.0:
+            return current_axis
+        selected_axis = ffd_tangent_slide_axis_from_screen(
+            mouse_delta,
+            self._tangent_slide_screen_axes(),
+            current_axis=current_axis,
+        )
+        if selected_axis is None:
+            return current_axis
+        self._transform_slide_axis = selected_axis
+        self._transform_slide_world_axis = (
+            self._transform_slide_world_axes[selected_axis])
+        self._transform_slide_world_tangents = (
+            self._transform_slide_world_tangent_fields[selected_axis])
+        if selected_axis != current_axis:
+            self._set_header(context)
+        return selected_axis
+
+    def _tangent_slide_distance(self, current_mouse, world_axis=None):
+        """Map pointer motion to signed world distance along the slide tangent."""
+        from bpy_extras import view3d_utils
+
+        region = self._window_region
+        region_data = self._region_data
+        pivot = Vector(self._transform_slide_pivot_world)
+        axis = Vector(
+            world_axis if world_axis is not None else
+            self._transform_slide_world_axis)
+        initial_mouse = Vector(self._transform_slide_initial_mouse)
+        pivot_screen = view3d_utils.location_3d_to_region_2d(
+            region, region_data, pivot)
+        tangent_screen = view3d_utils.location_3d_to_region_2d(
+            region, region_data, pivot + axis)
+        if pivot_screen is not None and tangent_screen is not None:
+            screen_axis = Vector(tangent_screen) - Vector(pivot_screen)
+            if screen_axis.length_squared > 1.0e-4:
+                return (
+                    (Vector(current_mouse) - initial_mouse).dot(screen_axis) /
+                    screen_axis.length_squared)
+        start_world = view3d_utils.region_2d_to_location_3d(
+            region, region_data, initial_mouse, pivot)
+        current_world = view3d_utils.region_2d_to_location_3d(
+            region, region_data, current_mouse, pivot)
+        distance = (Vector(current_world) - Vector(start_world)).dot(axis)
+        if abs(distance) > EPSILON:
+            return distance
+        pixel_world = view3d_utils.region_2d_to_location_3d(
+            region, region_data, initial_mouse + Vector((0.0, 1.0)), pivot)
+        world_per_pixel = max(
+            (Vector(pixel_world) - Vector(start_world)).length, EPSILON)
+        return (Vector(current_mouse).y - initial_mouse.y) * world_per_pixel
 
     def _apply_transform(self, context, event, properties):
         from bpy_extras import view3d_utils
@@ -13908,6 +15018,35 @@ class SDH_OT_box_select_ffd_points(Operator):
                 index: point + local_delta * weights.get(index, 0.0)
                 for index, point in self._transform_initial_points.items()
             }
+        elif mode == "TANGENT_SLIDE":
+            slide_axis = self._select_tangent_slide_axis(
+                context, current_mouse)
+            world_axes = getattr(self, "_transform_slide_world_axes", {})
+            tangent_fields = getattr(
+                self, "_transform_slide_world_tangent_fields", {})
+            world_axis = world_axes.get(slide_axis)
+            distance = (
+                self._tangent_slide_distance(
+                    current_mouse, world_axis=world_axis) * precise
+                if world_axis is not None else 0.0)
+            if snap:
+                distance = round(distance * 10.0) / 10.0
+            base_points = getattr(self, "_transform_slide_base_points", {})
+            tangents = tangent_fields.get(slide_axis, {})
+            fallback = (
+                world_axis if world_axis is not None else
+                getattr(
+                    self, "_transform_slide_world_axis", (0.0, 1.0, 0.0)))
+            values = ffd_tangent_slide_values(
+                base_points,
+                {
+                    index: tangents.get(index, fallback)
+                    for index in base_points
+                },
+                self._transform_cage_inverse,
+                distance,
+                weights,
+            )
         elif mode == "ROTATE":
             center = view3d_utils.location_3d_to_region_2d(
                 region, region_data, self._transform_pivot_world)
@@ -14571,6 +15710,15 @@ class SDH_OT_box_select_ffd_points(Operator):
                 finish_native_edit_sessions(context, restore_target=True)
             except (ImportError, ReferenceError, RuntimeError, TypeError):
                 return {"CANCELLED"}
+        if (
+                bool(getattr(properties, "ffd_edit_mode_active", False)) and
+                not _ffd_edit_session_live(controller)
+        ):
+            # Undo and saved files can restore the RNA flag, but Blender never
+            # restores Python modal instances. Treat that state as inactive so
+            # the first click can start a fresh editor without reloading.
+            properties.ffd_edit_mode_active = False
+            clear_ffd_hover_entity(controller)
         if bool(getattr(properties, "ffd_edit_mode_active", False)):
             if bool(getattr(self, "toggle", True)):
                 finished = finish_ffd_edit_sessions(
@@ -14856,7 +16004,22 @@ class SDH_OT_box_select_ffd_points(Operator):
             ):
                 self._finish_transform(context, properties)
                 return {"RUNNING_MODAL"}
+            if (
+                    event.type == "G" and event.value == "PRESS" and
+                    getattr(self, "_transform_mode", "") in {
+                        "MOVE", "TANGENT_SLIDE"}
+            ):
+                if getattr(self, "_transform_mode", "") == "MOVE":
+                    self._begin_tangent_slide(
+                        context, event, properties)
+                else:
+                    self._begin_transform(
+                        context, event, "MOVE",
+                        initial_mouse=self._region_position(region, event))
+                return {"RUNNING_MODAL"}
             if event.type in {"X", "Y", "Z"} and event.value == "PRESS":
+                if getattr(self, "_transform_mode", "") == "TANGENT_SLIDE":
+                    return {"RUNNING_MODAL"}
                 requested_axis = {"X": 0, "Y": 1, "Z": 2}[event.type]
                 self._transform_axis, self._transform_axis_space = (
                     ffd_transform_axis_state(
@@ -15074,527 +16237,36 @@ class SDH_OT_reset_ffd(Operator):
         return {"FINISHED"}
 
 
-_CAGE_ANIMATION_GROUP = "Simple Deform Cage"
-_BAKED_ANIMATION_GROUP = "Baked Cage Animation"
-_BAKED_ANIMATION_MARKER = "_sdh_baked_cage_animation"
-_BAKED_SOURCE_NAME = "_sdh_baked_source_name"
-_BAKED_FRAME_START = "_sdh_baked_frame_start"
-_BAKED_FRAME_END = "_sdh_baked_frame_end"
-_BAKED_FRAME_STEP = "_sdh_baked_frame_step"
-_CAGE_ANIMATED_PROPERTIES = (
-    "bend_strength",
-    "bend_direction",
-    "twist_strength",
-    "taper_factor",
-    "stretch_factor",
-    "shear_factors",
-    "ffd_offsets",
-    "curve_control_mode",
-    "curve_length_mode",
-    "curve_mode",
-    "curve_boundary_mode",
-    "curve_range_start",
-    "curve_range_end",
-    "curve_global_radius",
-    "curve_global_twist",
-    "curve_relative_binding",
-    "curve_closed",
-    "curve_preserve_volume",
-    "stage_enabled",
-    "preserve_volume",
-    "top_scale",
-    "bottom_scale",
-    "top_offset",
-    "bottom_offset",
-    "size",
-)
+# Keyframe channels and animation baking now live in `animation_io`.
+# Import mid-file (after every helper above is defined) and re-export the
+# stable names so existing scripts, tests, and siblings keep working.
+from . import animation_io as _animation_io  # noqa: E402
 
-
-def _cage_animation_paths(controller):
-    """Return the current cage's animatable property and transform paths."""
-    paths = [f"sdh_cage_deform.{name}" for name in _CAGE_ANIMATED_PROPERTIES]
-    properties = getattr(controller, "sdh_cage_deform", None)
-    if (
-            properties is not None and
-            str(getattr(properties, "cage_type", "STANDARD")) == "FFD"
-    ):
-        ensure_ffd_point_collection(properties)
-        for index in ffd_keyframe_indices(properties):
-            paths.extend((
-                f"sdh_cage_deform.ffd_points[{index}].offset",
-                f"sdh_cage_deform.ffd_points[{index}].influence",
-            ))
-    if (
-            properties is not None and
-            str(getattr(properties, "cage_type", "STANDARD")) == "CURVE"
-    ):
-        try:
-            from .curve import curve_animation_paths
-            paths.extend(curve_animation_paths(controller))
-        except (ImportError, ReferenceError, RuntimeError):
-            pass
-    rotation_mode = str(getattr(controller, "rotation_mode", "XYZ"))
-    rotation_path = {
-        "QUATERNION": "rotation_quaternion",
-        "AXIS_ANGLE": "rotation_axis_angle",
-    }.get(rotation_mode, "rotation_euler")
-    paths.extend(("location", rotation_path))
-    return tuple(paths)
-
-
-def _keyframe_paths(controller, paths, *, delete=False):
-    changed = 0
-    for data_path in paths:
-        try:
-            result = (
-                controller.keyframe_delete(
-                    data_path, group=_CAGE_ANIMATION_GROUP)
-                if delete else
-                controller.keyframe_insert(
-                    data_path, group=_CAGE_ANIMATION_GROUP)
-            )
-        except (AttributeError, ReferenceError, RuntimeError, TypeError,
-                ValueError):
-            result = False
-        changed += int(bool(result))
-    return changed
-
-
-def _keyframe_ffd_points(controller, *, delete=False):
-    """Key FFD points according to the user-configured point scope."""
-    properties = getattr(controller, "sdh_cage_deform", None)
-    if (
-            properties is None or
-            str(getattr(properties, "cage_type", "STANDARD")) != "FFD"
-    ):
-        return 0
-    ensure_ffd_point_collection(properties)
-    paths = tuple(
-        path
-        for index in ffd_keyframe_indices(properties)
-        for path in (
-            f"sdh_cage_deform.ffd_points[{index}].offset",
-            f"sdh_cage_deform.ffd_points[{index}].influence",
-        ))
-    return _keyframe_paths(controller, paths, delete=delete)
-
-
-def _keyframe_cage_paths(controller, *, delete=False):
-    changed = _keyframe_paths(
-        controller, _cage_animation_paths(controller), delete=delete)
-    properties = getattr(controller, "sdh_cage_deform", None)
-    if (
-            properties is not None and
-            str(getattr(properties, "cage_type", "STANDARD")) == "CURVE"
-    ):
-        try:
-            from .curve import keyframe_curve_guide
-            changed += keyframe_curve_guide(
-                controller, delete=delete, group=_CAGE_ANIMATION_GROUP)
-        except (ImportError, ReferenceError, RuntimeError):
-            pass
-    return changed
-
-
-def _bake_frame_samples(frame_start, frame_end, step):
-    frame_start = int(frame_start)
-    frame_end = int(frame_end)
-    step = int(step)
-    if frame_end < frame_start:
-        raise ValueError(iface_(
-            "End Frame must not be earlier than Start Frame"))
-    if step < 1:
-        raise ValueError(iface_("Sample Step must be at least 1"))
-    frames = list(range(frame_start, frame_end + 1, step))
-    if frames[-1] != frame_end:
-        frames.append(frame_end)
-    return tuple(frames)
-
-
-def _mesh_topology_signature(mesh):
-    """Return a connectivity signature suitable for shape-key baking."""
-    if mesh is None or not getattr(mesh, "vertices", None):
-        raise RuntimeError(iface_("The evaluated geometry has no vertices"))
-    digest = hashlib.blake2b(digest_size=16)
-    collections = (
-        (mesh.edges, "vertices", 2),
-        (mesh.loops, "vertex_index", 1),
-        (mesh.polygons, "loop_start", 1),
-        (mesh.polygons, "loop_total", 1),
-    )
-    for collection, property_name, width in collections:
-        values = array("i", [0]) * (len(collection) * width)
-        if values:
-            collection.foreach_get(property_name, values)
-            digest.update(values.tobytes())
-    return (
-        len(mesh.vertices),
-        len(mesh.edges),
-        len(mesh.loops),
-        len(mesh.polygons),
-        digest.digest(),
-    )
-
-
-def _mesh_vertex_coordinates(mesh):
-    coordinates = array("f", [0.0]) * (len(mesh.vertices) * 3)
-    mesh.vertices.foreach_get("co", coordinates)
-    return coordinates
-
-
-def _evaluated_mesh_snapshot(target, depsgraph):
-    evaluated = target.evaluated_get(depsgraph)
-    mesh = None
-    try:
-        mesh = evaluated.to_mesh(
-            preserve_all_data_layers=True,
-            depsgraph=depsgraph,
-        )
-        if mesh is None:
-            raise RuntimeError(iface_(
-                "The evaluated object could not be converted to a mesh"))
-        return _mesh_topology_signature(mesh), _mesh_vertex_coordinates(mesh)
-    finally:
-        if mesh is not None:
-            evaluated.to_mesh_clear()
-
-
-def _iter_baked_action_fcurves(action):
-    """Yield legacy and Blender 5 layered F-Curves for the bake Action."""
-    if action is None:
-        return
-    seen = set()
-
-    def emit(curves):
-        for curve in tuple(curves or ()):
-            pointer = _pointer(curve) or id(curve)
-            if pointer in seen:
-                continue
-            seen.add(pointer)
-            yield curve
-
-    yield from emit(getattr(action, "fcurves", ()))
-    slots = tuple(getattr(action, "slots", ()) or ())
-    for layer in tuple(getattr(action, "layers", ()) or ()):
-        for strip in tuple(getattr(layer, "strips", ()) or ()):
-            yield from emit(getattr(strip, "fcurves", ()))
-            channelbags = tuple(getattr(strip, "channelbags", ()) or ())
-            if channelbags:
-                for channelbag in channelbags:
-                    yield from emit(getattr(channelbag, "fcurves", ()))
-                continue
-            accessor = getattr(strip, "channelbag", None)
-            if not callable(accessor):
-                continue
-            for slot in slots:
-                try:
-                    channelbag = accessor(slot)
-                except (AttributeError, ReferenceError, RuntimeError,
-                        TypeError, ValueError):
-                    continue
-                yield from emit(getattr(channelbag, "fcurves", ()))
-
-
-def _linearize_baked_eval_time(shape_keys):
-    animation = getattr(shape_keys, "animation_data", None)
-    action = getattr(animation, "action", None) if animation else None
-    if action is not None:
-        action.name = f"{shape_keys.name} Action"
-    for curve in _iter_baked_action_fcurves(action):
-        if str(getattr(curve, "data_path", "")) != "eval_time":
-            continue
-        for keyframe in tuple(getattr(curve, "keyframe_points", ()) or ()):
-            keyframe.interpolation = "LINEAR"
-
-
-def _prepare_bake_frame(context, frame):
-    context.scene.frame_set(int(frame))
-    sync_all_controllers(pull_transform=True, sync_mode="timer")
-    _drain_chain_reconnect_queue()
-    _drain_stack_auto_fit_queue()
-    context.view_layer.update()
-    return context.evaluated_depsgraph_get()
-
-
-def bake_cage_animation_to_shape_keys(
-        context, target, frame_start, frame_end, step=1, result_name=""):
-    """Bake evaluated cage animation to an independent absolute-key mesh."""
-    if target is None or getattr(target, "type", None) not in SUPPORTED_TYPES:
-        raise RuntimeError(iface_("Select a supported target object first"))
-    frames = _bake_frame_samples(frame_start, frame_end, step)
-    scene = context.scene
-    original_frame = int(scene.frame_current)
-    original_subframe = float(getattr(scene, "frame_subframe", 0.0))
-    source_matrix = target.matrix_world.copy()
-    result_name = str(result_name or "").strip() or f"{target.name} Baked"
-    baked = None
-    baked_mesh = None
-    progress_started = False
-    try:
-        context.window_manager.progress_begin(0, len(frames))
-        progress_started = True
-        depsgraph = _prepare_bake_frame(context, frames[0])
-        evaluated = target.evaluated_get(depsgraph)
-        baked_mesh = bpy.data.meshes.new_from_object(
-            evaluated,
-            preserve_all_data_layers=True,
-            depsgraph=depsgraph,
-        )
-        if baked_mesh is None:
-            raise RuntimeError(iface_(
-                "The evaluated object could not be converted to a mesh"))
-        topology = _mesh_topology_signature(baked_mesh)
-        baked_mesh.name = f"{result_name} Mesh"
-        baked = bpy.data.objects.new(result_name, baked_mesh)
-        target_collections = tuple(getattr(target, "users_collection", ()))
-        collection = (
-            target_collections[0] if target_collections
-            else getattr(context, "collection", None) or scene.collection
-        )
-        baked.matrix_world = source_matrix
-        for attribute in ("color", "display_type", "show_in_front"):
-            try:
-                setattr(baked, attribute, getattr(target, attribute))
-            except (AttributeError, ReferenceError, RuntimeError, TypeError,
-                    ValueError):
-                pass
-
-        basis = baked.shape_key_add(name="Basis", from_mix=False)
-        basis.interpolation = "KEY_LINEAR"
-        shape_keys = baked_mesh.shape_keys
-        shape_keys.name = f"{baked.name} Shape Keys"
-        shape_keys.use_relative = False
-        shape_keys.eval_time = 0.0
-        shape_keys.keyframe_insert(
-            "eval_time", frame=frames[0], group=_BAKED_ANIMATION_GROUP)
-        context.window_manager.progress_update(1)
-
-        for index, frame in enumerate(frames[1:], start=1):
-            depsgraph = _prepare_bake_frame(context, frame)
-            current_topology, coordinates = _evaluated_mesh_snapshot(
-                target, depsgraph)
-            if current_topology != topology:
-                raise RuntimeError(iface_(
-                    "Topology changes at frame {frame}; shape-key baking "
-                    "requires stable topology").format(frame=frame))
-            shape = baked.shape_key_add(
-                name=f"Frame {frame}", from_mix=False)
-            shape.interpolation = "KEY_LINEAR"
-            shape.data.foreach_set("co", coordinates)
-            shape_keys.eval_time = float(index * 10)
-            shape_keys.keyframe_insert(
-                "eval_time", frame=frame, group=_BAKED_ANIMATION_GROUP)
-            context.window_manager.progress_update(index + 1)
-
-        _linearize_baked_eval_time(shape_keys)
-        baked[_BAKED_ANIMATION_MARKER] = True
-        baked[_BAKED_SOURCE_NAME] = target.name_full
-        baked[_BAKED_FRAME_START] = int(frames[0])
-        baked[_BAKED_FRAME_END] = int(frames[-1])
-        baked[_BAKED_FRAME_STEP] = int(step)
-        baked_mesh.update()
-        # Keep the result outside the dependency graph while sampling. This
-        # prevents collection-driven source modifiers from accidentally
-        # ingesting the partially built bake and changing their own topology.
-        collection.objects.link(baked)
-        return baked, len(frames)
-    except Exception:
-        if baked is not None:
-            try:
-                bpy.data.objects.remove(baked, do_unlink=True)
-            except (ReferenceError, RuntimeError):
-                pass
-        if baked_mesh is not None and baked_mesh.users == 0:
-            try:
-                bpy.data.meshes.remove(baked_mesh)
-            except (ReferenceError, RuntimeError):
-                pass
-        raise
-    finally:
-        try:
-            scene.frame_set(original_frame, subframe=original_subframe)
-            context.view_layer.update()
-        except (AttributeError, ReferenceError, RuntimeError, TypeError,
-                ValueError):
-            pass
-        if progress_started:
-            context.window_manager.progress_end()
-
-
-class SDH_OT_insert_cage_keyframes(Operator):
-    bl_idname = "sdh.insert_cage_keyframes"
-    bl_label = "Insert Deformation Keyframes"
-    bl_description = (
-        "Key the active cage or traditional Simple Deform stage on the "
-        "current frame"
-    )
-    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
-
-    @classmethod
-    def poll(cls, context):
-        target = deform_stack_target_from_context(context)
-        active = getattr(getattr(target, "modifiers", None), "active", None)
-        return bool(target and active in deform_stack_modifiers(target))
-
-    def execute(self, context):
-        target = deform_stack_target_from_context(context)
-        modifier = getattr(getattr(target, "modifiers", None), "active", None)
-        if target is None or modifier not in deform_stack_modifiers(target):
-            return {"CANCELLED"}
-        if modifier.type == "SIMPLE_DEFORM":
-            from ..ops.key_frame import keyframe_simple_deform
-            count = keyframe_simple_deform(modifier)
-        else:
-            controller = find_controller(target, modifier)
-            if controller is None:
-                return {"CANCELLED"}
-            count = _keyframe_cage_paths(controller)
-        self.report(
-            {"INFO"},
-            iface_("Inserted {count} deformation keyframe channels").format(
-                count=count),
-        )
-        return {"FINISHED"}
-
-
-class SDH_OT_delete_cage_keyframes(Operator):
-    bl_idname = "sdh.delete_cage_keyframes"
-    bl_label = "Delete Deformation Keyframes"
-    bl_description = (
-        "Delete current-frame keys for the active cage or traditional "
-        "Simple Deform stage"
-    )
-    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
-
-    @classmethod
-    def poll(cls, context):
-        target = deform_stack_target_from_context(context)
-        active = getattr(getattr(target, "modifiers", None), "active", None)
-        return bool(target and active in deform_stack_modifiers(target))
-
-    def execute(self, context):
-        target = deform_stack_target_from_context(context)
-        modifier = getattr(getattr(target, "modifiers", None), "active", None)
-        if target is None or modifier not in deform_stack_modifiers(target):
-            return {"CANCELLED"}
-        if modifier.type == "SIMPLE_DEFORM":
-            from ..ops.key_frame import keyframe_simple_deform
-            count = keyframe_simple_deform(modifier, delete=True)
-        else:
-            controller = find_controller(target, modifier)
-            if controller is None:
-                return {"CANCELLED"}
-            count = _keyframe_cage_paths(controller, delete=True)
-        self.report(
-            {"INFO"},
-            iface_("Removed {count} deformation keyframe channels").format(
-                count=count),
-        )
-        return {"FINISHED"}
-
-
-class SDH_OT_bake_cage_animation(Operator):
-    bl_idname = "sdh.bake_cage_animation"
-    bl_label = "Bake Mesh Animation"
-    bl_description = (
-        "Bake the evaluated cage animation to absolute shape keys on a new "
-        "mesh object"
-    )
-    bl_options = {"REGISTER", "UNDO"}
-
-    frame_start: IntProperty(
-        name="Start Frame",
-        description="First scene frame to sample",
-        default=1,
-    )
-    frame_end: IntProperty(
-        name="End Frame",
-        description="Last scene frame to sample",
-        default=250,
-    )
-    step: IntProperty(
-        name="Sample Step",
-        description="Number of scene frames between baked shape keys",
-        default=1,
-        min=1,
-        soft_max=10,
-    )
-    result_name: StringProperty(
-        name="Result Name",
-        description="Name of the new independent mesh object",
-        default="",
-    )
-    hide_source: BoolProperty(
-        name="Hide Source",
-        description=(
-            "Hide the source object in the viewport and renders after a "
-            "successful bake"
-        ),
-        default=True,
-    )
-
-    @classmethod
-    def poll(cls, context):
-        target = deform_stack_target_from_context(context)
-        return bool(
-            target and target.type in SUPPORTED_TYPES and
-            deform_stack_modifiers(target))
-
-    def invoke(self, context, _event):
-        target = deform_stack_target_from_context(context)
-        self.frame_start = int(context.scene.frame_start)
-        self.frame_end = int(context.scene.frame_end)
-        if target is not None and not self.result_name:
-            self.result_name = f"{target.name} Baked"
-        return context.window_manager.invoke_props_dialog(self, width=420)
-
-    def draw(self, _context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-        layout.prop(self, "frame_start")
-        layout.prop(self, "frame_end")
-        layout.prop(self, "step")
-        layout.prop(self, "result_name")
-        layout.prop(self, "hide_source")
-
-    def execute(self, context):
-        target = deform_stack_target_from_context(context)
-        if target is None:
-            return {"CANCELLED"}
-        finish_ffd_edit_sessions(context, restore_target=False)
-        try:
-            from .curve import finish_curve_edit_sessions
-            finish_curve_edit_sessions(context, restore_target=False)
-        except (ImportError, ReferenceError, RuntimeError):
-            pass
-        try:
-            baked, count = bake_cage_animation_to_shape_keys(
-                context,
-                target,
-                self.frame_start,
-                self.frame_end,
-                self.step,
-                self.result_name,
-            )
-        except (AttributeError, ReferenceError, RuntimeError, TypeError,
-                ValueError) as error:
-            self.report({"ERROR"}, str(error))
-            return {"CANCELLED"}
-
-        if self.hide_source:
-            try:
-                target.hide_set(True)
-                target.hide_render = True
-            except (AttributeError, ReferenceError, RuntimeError, TypeError):
-                pass
-        _activate(context, baked)
-        self.report(
-            {"INFO"},
-            iface_("Baked {count} frames to {name}").format(
-                count=count, name=baked.name),
-        )
-        return {"FINISHED"}
+_CAGE_ANIMATION_GROUP = _animation_io._CAGE_ANIMATION_GROUP
+_BAKED_ANIMATION_GROUP = _animation_io._BAKED_ANIMATION_GROUP
+_BAKED_ANIMATION_MARKER = _animation_io._BAKED_ANIMATION_MARKER
+_BAKED_SOURCE_NAME = _animation_io._BAKED_SOURCE_NAME
+_BAKED_FRAME_START = _animation_io._BAKED_FRAME_START
+_BAKED_FRAME_END = _animation_io._BAKED_FRAME_END
+_BAKED_FRAME_STEP = _animation_io._BAKED_FRAME_STEP
+_CAGE_ANIMATED_PROPERTIES = _animation_io._CAGE_ANIMATED_PROPERTIES
+_cage_animation_paths = _animation_io._cage_animation_paths
+_keyframe_paths = _animation_io._keyframe_paths
+_keyframe_ffd_points = _animation_io._keyframe_ffd_points
+_keyframe_cage_paths = _animation_io._keyframe_cage_paths
+_keyframe_layer_paths = _animation_io._keyframe_layer_paths
+_bake_frame_samples = _animation_io._bake_frame_samples
+_mesh_topology_signature = _animation_io._mesh_topology_signature
+_mesh_vertex_coordinates = _animation_io._mesh_vertex_coordinates
+_evaluated_mesh_snapshot = _animation_io._evaluated_mesh_snapshot
+_iter_baked_action_fcurves = _animation_io._iter_baked_action_fcurves
+_linearize_baked_eval_time = _animation_io._linearize_baked_eval_time
+_prepare_bake_frame = _animation_io._prepare_bake_frame
+bake_cage_animation_to_shape_keys = (
+    _animation_io.bake_cage_animation_to_shape_keys)
+SDH_OT_insert_cage_keyframes = _animation_io.SDH_OT_insert_cage_keyframes
+SDH_OT_delete_cage_keyframes = _animation_io.SDH_OT_delete_cage_keyframes
+SDH_OT_bake_cage_animation = _animation_io.SDH_OT_bake_cage_animation
 
 
 class SDH_OT_select_cage_stage(Operator):
@@ -15938,6 +16610,20 @@ class SDH_OT_duplicate_cage_deform(Operator):
                     reconnect_chain(target, source_chain_uuid)
             except (ImportError, AttributeError, ReferenceError, RuntimeError):
                 pass
+        else:
+            # create_deform_stage initially fits the new stage to its live
+            # input, but copying the source state deliberately overwrites that
+            # frame with the previous cage's size and transform. Repeat the
+            # same Align & Fit action exposed by the panel after the copy so an
+            # ordinary duplicated stage starts on its actual upstream result.
+            copied_properties = controller.sdh_cage_deform
+            fit_controller_to_alignment(
+                context,
+                target,
+                modifier,
+                controller,
+                copied_properties.alignment,
+            )
         target.modifiers.active = modifier
         _activate(context, controller)
         refresh_controller_display(context)

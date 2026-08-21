@@ -50,7 +50,8 @@ def deform_point_local(point, size, deform_type="BEND", strength=0.0,
                        bend_direction=None, twist_strength=None,
                        taper_factor=None, stretch_factor=None,
                        shear_factors=(0.0, 0.0), ffd_offsets=(),
-                       deform_order=None, curve_deformer=None):
+                       deform_order=None, curve_deformer=None,
+                       _prepared=False):
     """Reference implementation shared by viewport drawing and regressions.
 
     Omitting ``deform_types`` preserves the original single-operation API.
@@ -62,7 +63,10 @@ def deform_point_local(point, size, deform_type="BEND", strength=0.0,
     if not stage_enabled:
         return raw_point.copy()
     size = Vector((max(abs(value), EPSILON) for value in size))
-    if deform_types is None and deform_order is None:
+    if _prepared:
+        enabled = set(deform_types or ())
+        operation_order = tuple(deform_order or ())
+    elif deform_types is None and deform_order is None:
         enabled = {deform_type} if deform_type in DEFORM_BITS else {"BEND"}
     elif deform_types is None:
         try:
@@ -80,14 +84,15 @@ def deform_point_local(point, size, deform_type="BEND", strength=0.0,
             }
         except TypeError:
             enabled = set()
-    operation_order = (
-        normalize_deform_order(
-            DEFORM_ORDER if deform_order is None else deform_order,
-            enabled,
-            deform_type,
+    if not _prepared:
+        operation_order = (
+            normalize_deform_order(
+                DEFORM_ORDER if deform_order is None else deform_order,
+                enabled,
+                deform_type,
+            )
+            if enabled else ()
         )
-        if enabled else ()
-    )
 
     bend_strength = (
         float(strength) if bend_strength is None and deform_type == "BEND"
@@ -112,7 +117,8 @@ def deform_point_local(point, size, deform_type="BEND", strength=0.0,
         shear_factors[0] if len(shear_factors) > 0 else 0.0,
         shear_factors[1] if len(shear_factors) > 1 else 0.0,
     )
-    ffd_offset_vectors = normalized_ffd_offsets(ffd_offsets)
+    ffd_offset_vectors = (
+        normalized_ffd_offsets(ffd_offsets) if "FFD" in enabled else ())
 
     half = size * 0.5
     configured_origin_y = {

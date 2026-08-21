@@ -43,10 +43,10 @@ check(required_locales <= set(catalogs),
       f"missing locale catalogs: {required_locales - set(catalogs)!r}")
 
 ffd_modal_header = (
-    "FFD Edit Mode: drag blank area to box select | G Move | R Rotate | "
-    "S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | "
-    "I Key | Alt+I Delete Key | Alt+R Reset | Double-click blank / Esc / "
-    "Right Mouse exits"
+    "FFD Edit Mode: drag blank area to box select | G Move; G again "
+    "Tangent Slide | R Rotate | S Scale | Shift Add | Ctrl Subtract | "
+    "A Select All | Alt+A Clear | I Key | Alt+I Delete Key | Alt+R "
+    "Reset | Double-click blank / Esc / Right Mouse exits"
 )
 ffd_box_select_header = (
     "FFD Box Select: drag a rectangle over FFD points, lines, or faces | "

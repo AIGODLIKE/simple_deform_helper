@@ -1,3 +1,23 @@
+# Simple Deform Helper 2.7.50
+
+## Responsive Chained Cage Scaling and Creation UI
+
+- Limited top and bottom scale dragging to the active chained cage and its
+  shared-edge neighbor, while keeping the visible cages synchronized with the
+  controlled geometry through the cumulative chain evaluation path.
+- Optimized interactive chain previews with bounded deformation-plan caches,
+  dedicated shared-scale socket updates, and deferred rebuilding of unrelated
+  cage previews. Six-segment drag benchmarks improved by about 30x on Blender
+  5.0.1 and 5.2.0.
+- Clamped chained-cage gap values to `0.00-0.99` across properties, operators,
+  metadata reads, and internal writes.
+- Restored the Standard and Standard Chained quick-create menus for Bend,
+  Twist, Taper, Stretch, and Shear, and kept dedicated Standard, Standard
+  Chained, Shear, Shear Chained, FFD, FFD Chained, and Curve creation choices.
+- Simplified localized creation labels and added regression coverage for scale
+  locality, object/cage synchronization, drag settling, UI contracts, and
+  translated labels.
+
 # Simple Deform Helper 2.7.48
 
 ## Animated Cage Recovery After File Load

@@ -600,6 +600,16 @@ def build_node_group(node_group):
     chain_global_suffix_shear_socket = node_group.interface.new_socket(
         name="Chain Global Suffix Shear", in_out="INPUT",
         socket_type="NodeSocketVector")
+    # Appended last so older modifiers keep their persisted identifiers.
+    # Left visible in the modifier so users can toggle its attribute input
+    # (vertex group) directly on the Geometry Nodes modifier as well.
+    influence_weight_socket = node_group.interface.new_socket(
+        name="Influence Weight", in_out="INPUT",
+        socket_type="NodeSocketFloat")
+    influence_weight_socket.subtype = "FACTOR"
+    influence_weight_socket.default_value = 1.0
+    influence_weight_socket.min_value = 0.0
+    influence_weight_socket.max_value = 1.0
     for socket in (
             chain_domain_socket, chain_root_socket, chain_tip_socket,
             stage_enabled_socket, chain_input_pivot_socket,
@@ -2411,6 +2421,18 @@ def build_node_group(node_group):
     final_position = switch(
         "VECTOR", global_stretch_apply,
         post_suffix_position, global_stretched_position)
+
+    # Per-stage influence: blend between the untouched input position and
+    # the fully deformed position. The socket accepts a vertex-group
+    # attribute on the modifier, giving painted per-point falloff.
+    influence_weight = group_input.outputs[
+        influence_weight_socket.identifier]
+    influence_delta = vector_math(
+        "SUBTRACT", final_position, position.outputs["Position"])
+    influence_scaled = vector_math(
+        "SCALE", influence_delta, influence_weight)
+    final_position = vector_math(
+        "ADD", position.outputs["Position"], influence_scaled)
 
     capture_domain = registrar.new("GeometryNodeCaptureAttribute")
     capture_domain.name = "SDH Chain Domain Capture"

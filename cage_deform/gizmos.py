@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from time import monotonic
 
 import bpy
 from bpy.props import FloatProperty
@@ -154,8 +155,72 @@ _CAGE_WIRE_GEOMETRY_CACHE = {}
 _CAGE_WIRE_INDEX_CACHE = {}
 _CAGE_GUIDE_GEOMETRY_CACHE = {}
 _BEND_TREND_LOCAL_FRAME_CACHE = {}
+_CHAIN_DISPLAY_BY_PREVIEW_SIGNATURE = {}
 _GEOMETRY_CACHE_LIMIT = 64
 _GIZMO_UNDO_ACTIVE = _undo.ACTIVE_TRANSACTIONS
+
+# Interactive drags change the cage signature on every mouse event, so the
+# signature-keyed geometry caches never hit and each event pays a full Python
+# re-tessellation for every affected stage.  Wire rebuilds and inactive-stage
+# handle matrices are therefore rate limited: within the window the previous
+# shape/matrix is reused and one deferred redraw guarantees convergence after
+# the burst ends.  Active-stage handles are exempt so dragging stays 1:1.
+_WIRE_THROTTLE_WINDOW = 1.0 / 30.0
+_BUNDLE_MATRIX_THROTTLE_WINDOW = 0.05
+_WIRE_THROTTLE_STATE = {}
+_WIRE_THROTTLE_LIMIT = 128
+_THROTTLE_REDRAW_PENDING = []
+_END_SHAPE_DRAG_STATE = {}
+
+
+def _rna_pointer(value):
+    try:
+        return int(value.as_pointer()) if value is not None else 0
+    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+        return id(value) if value is not None else 0
+
+
+def _begin_end_shape_preview_drag(target, modifier, controller, side):
+    """Keep only the edited seam live while an end-scale drag is active."""
+    _END_SHAPE_DRAG_STATE.clear()
+    chain_uuid = stage_chain_uuid(modifier)
+    stages = tuple(chain_stages(target, chain_uuid))
+    if (
+            not chain_uuid or len(stages) < 2 or
+            str(stage_chain_mode(stages[0], "")).upper() not in
+            {"CHAINED", "CONNECTED"}
+    ):
+        return
+    try:
+        index = stages.index(modifier)
+    except ValueError:
+        return
+    live_pointers = {_rna_pointer(controller)}
+    peer_index = index + (1 if str(side).upper() == "TOP" else -1)
+    if 0 <= peer_index < len(stages):
+        peer = find_controller(target, stages[peer_index])
+        if peer is not None:
+            live_pointers.add(_rna_pointer(peer))
+    _END_SHAPE_DRAG_STATE.update({
+        "target": _rna_pointer(target),
+        "controllers": frozenset(live_pointers),
+    })
+
+
+def _end_shape_preview_drag():
+    _END_SHAPE_DRAG_STATE.clear()
+    # The next redraw is the committed state, so it must not inherit the
+    # in-burst 30 Hz wire throttle and briefly retain a stale picker shape.
+    _WIRE_THROTTLE_STATE.clear()
+
+
+def _freeze_for_end_shape_drag(target, controller):
+    return bool(
+        _END_SHAPE_DRAG_STATE and
+        _END_SHAPE_DRAG_STATE.get("target") == _rna_pointer(target) and
+        _rna_pointer(controller) not in
+        _END_SHAPE_DRAG_STATE.get("controllers", ())
+    )
 
 
 def _push_gizmo_undo(message):
@@ -211,6 +276,71 @@ def _consume_matrix_fresh(gizmo):
     """
     key = id(gizmo)
     return key in _MATRIX_FRESH_IDS
+
+
+def _tag_view3d_redraw():
+    """Deferred redraw so throttled shapes settle after an input burst."""
+    _THROTTLE_REDRAW_PENDING.clear()
+    try:
+        windows = bpy.context.window_manager.windows
+    except (AttributeError, ReferenceError, RuntimeError, TypeError):
+        return None
+    for window in windows:
+        screen = getattr(window, "screen", None)
+        for area in getattr(screen, "areas", ()) or ():
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+    return None
+
+
+def _request_throttled_redraw():
+    if _THROTTLE_REDRAW_PENDING:
+        return
+    _THROTTLE_REDRAW_PENDING.append(True)
+    try:
+        bpy.app.timers.register(
+            _tag_view3d_redraw, first_interval=_WIRE_THROTTLE_WINDOW)
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        _THROTTLE_REDRAW_PENDING.clear()
+
+
+def clear_throttled_redraw():
+    """Cancel deferred redraw ownership before the extension unregisters."""
+    try:
+        if bpy.app.timers.is_registered(_tag_view3d_redraw):
+            bpy.app.timers.unregister(_tag_view3d_redraw)
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        pass
+    _THROTTLE_REDRAW_PENDING.clear()
+    _WIRE_THROTTLE_STATE.clear()
+    _CHAIN_DISPLAY_BY_PREVIEW_SIGNATURE.clear()
+    _END_SHAPE_DRAG_STATE.clear()
+
+
+def _throttled_wire_shape(key):
+    """Return ``(use_stale, shape)`` for one rate-limited wire consumer.
+
+    ``settled`` state (two consecutive identical signatures) bypasses the
+    throttle entirely, so idle redraws keep the exact signature-cache path
+    and never schedule timers.
+    """
+    state = _WIRE_THROTTLE_STATE.get(key)
+    if state is None or state[3] or state[2] is None:
+        return False, None
+    if monotonic() - state[0] < _WIRE_THROTTLE_WINDOW:
+        _request_throttled_redraw()
+        return True, state[2]
+    return False, None
+
+
+def _store_wire_shape(key, signature, shape, *, rebuilt):
+    previous = _WIRE_THROTTLE_STATE.get(key)
+    settled = previous is not None and previous[1] == signature
+    stamp = (
+        monotonic() if rebuilt or previous is None else previous[0])
+    if len(_WIRE_THROTTLE_STATE) > _WIRE_THROTTLE_LIMIT:
+        _WIRE_THROTTLE_STATE.clear()
+    _WIRE_THROTTLE_STATE[key] = (stamp, signature, shape, settled)
 
 
 def _shape_vertices(name):
@@ -944,9 +1074,22 @@ BEND_DIRECTION_MIN_SEPARATION_PX = 36.0
 BEND_ANGLE_TWIST_SEPARATION_PX = 120.0
 STRETCH_HANDLE_TWIST_SEPARATION_PX = 120.0
 SHEAR_TWIST_SEPARATION_PX = 64.0
-# Keep the fine-direction ring clearly outside the evaluated cross-section so
-# it remains easy to grab after Bend/Twist stacks or at a distant viewport zoom.
-BEND_DIRECTION_RING_SCALE = 3.0
+# Keep the Bend direction ring inside the evaluated cross-section. The custom
+# arrow reaches 1.10 authored units, so a 0.82 radius ratio leaves visible
+# clearance even at strongly deformed sections.
+BEND_DIRECTION_RING_SCALE = 0.82
+BEND_DIRECTION_RING_SHAPE_EXTENT = 1.10
+
+
+def bend_direction_ring_scale(cross_radius):
+    """Return a usable direction-ring scale capped by the cage section."""
+    radius = max(abs(float(cross_radius)), EPSILON)
+    maximum = radius / BEND_DIRECTION_RING_SHAPE_EXTENT
+    preferred = radius * BEND_DIRECTION_RING_SCALE
+    # Retain the old usability floor where the section has room for it, but a
+    # tiny cage always wins over that floor and can never be overdrawn.
+    minimum = min(0.32, maximum)
+    return min(max(preferred, minimum), maximum)
 
 
 def _enabled_deform_types(properties):
@@ -1158,9 +1301,14 @@ def cage_picker_geometry_signature(properties):
 def cage_preview_geometry_state(properties):
     """Return the full preview signature and its precomputed post-frame."""
     controller = getattr(properties, "id_data", None)
-    input_frame, output_frame = (
-        _core_module.chain_conjugation_frames_for_controller(
-            controller, properties=properties))
+    chain_display_state = _core_module.chain_display_preview_state(properties)
+    if chain_display_state:
+        current_index = int(chain_display_state["current_index"])
+        input_frame, output_frame = chain_display_state["frames"][current_index]
+    else:
+        input_frame, output_frame = (
+            _core_module.chain_conjugation_frames_for_controller(
+                controller, properties=properties))
     prefix_state = _core_module.chain_global_prefix_preview_state(properties)
     stretch_state = _core_module.chain_global_stretch_preview_state(
         properties)
@@ -1174,17 +1322,20 @@ def cage_preview_geometry_state(properties):
         for vector in output_frame
         for component in vector
     )
-    return (
-        (
-            cage_picker_geometry_signature(properties),
-            input_frame_signature,
-            frame_signature,
-            _core_module.chain_global_prefix_preview_signature(prefix_state),
-            _core_module.chain_global_stretch_preview_signature(
-                stretch_state),
-        ),
-        output_frame,
+    signature = (
+        cage_picker_geometry_signature(properties),
+        input_frame_signature,
+        frame_signature,
+        _core_module.chain_global_prefix_preview_signature(prefix_state),
+        _core_module.chain_global_stretch_preview_signature(
+            stretch_state),
+        _core_module.chain_display_preview_signature(
+            chain_display_state),
     )
+    _cache_geometry(
+        _CHAIN_DISPLAY_BY_PREVIEW_SIGNATURE, signature,
+        chain_display_state)
+    return signature, output_frame
 
 
 def _cache_geometry(cache, key, value):
@@ -1197,7 +1348,7 @@ def _cache_geometry(cache, key, value):
 
 def cage_preview_ring_vertices(
         properties, ring_positions=(0.0, 0.25, 0.5, 0.75, 1.0),
-        *, preview_state=None):
+        *, preview_state=None, _chain_display_state=None):
     """Return structural cage rings without duplicating longitudinal rails.
 
     Curve effect boundaries use this lightweight path so their colored caps
@@ -1224,6 +1375,11 @@ def cage_preview_ring_vertices(
         _core_module.chain_global_stretch_preview_state(properties))
     chain_prefix_state = (
         _core_module.chain_global_prefix_preview_state(properties))
+    chain_display_state = (
+        _CHAIN_DISPLAY_BY_PREVIEW_SIGNATURE.get(preview_signature)
+        if _chain_display_state is None else _chain_display_state)
+    if chain_display_state is None:
+        chain_display_state = _core_module.chain_display_preview_state(properties)
     curve_deformer = None
     if str(getattr(properties, "cage_type", "STANDARD")) == "CURVE":
         try:
@@ -1242,6 +1398,7 @@ def cage_preview_ring_vertices(
                 (x_sign * half.x, ring_y, z_sign * half.z), properties,
                 chain_prefix_state=chain_prefix_state,
                 chain_stretch_state=chain_stretch_state,
+                chain_display_state=chain_display_state,
                 curve_deformer_override=curve_deformer,
                 preview_output_frame=preview_output_frame))
             for x_sign, z_sign in corner_signs
@@ -1254,14 +1411,22 @@ def cage_preview_ring_vertices(
 
 def cage_preview_wire_vertices(
         properties, steps=24, ring_positions=(0.0, 0.25, 0.5, 0.75, 1.0),
-        *, preview_state=None):
+        *, preview_state=None, throttle_key=None):
     """Return cached deformed cage rails/rings as independent line pairs.
 
     Active cage drawing, the bend-trend chooser, and inactive cage selection
     all use this sampler.  Every point is evaluated through the core property
     path, so a user-defined operation order is reflected without viewport-only
     deformation logic.
+
+    ``throttle_key`` opts one draw consumer into rate-limited rebuilds: while
+    its content keeps changing (an interactive drag), at most one rebuild per
+    throttle window runs and the previous shape is reused in between.
     """
+    if throttle_key is not None:
+        use_stale, stale = _throttled_wire_shape(throttle_key)
+        if use_stale:
+            return stale
     steps = max(int(steps), 1)
     ring_positions = tuple(float(value) for value in ring_positions)
     preview_signature, preview_output_frame = (
@@ -1274,6 +1439,8 @@ def cage_preview_wire_vertices(
     )
     cached = _CAGE_WIRE_GEOMETRY_CACHE.get(signature)
     if cached is not None:
+        if throttle_key is not None:
+            _store_wire_shape(throttle_key, signature, cached, rebuilt=False)
         return cached
 
     half = Vector(properties.size) * 0.5
@@ -1282,6 +1449,10 @@ def cage_preview_wire_vertices(
         _core_module.chain_global_stretch_preview_state(properties))
     chain_prefix_state = (
         _core_module.chain_global_prefix_preview_state(properties))
+    chain_display_state = _CHAIN_DISPLAY_BY_PREVIEW_SIGNATURE.get(
+        preview_signature)
+    if chain_display_state is None:
+        chain_display_state = _core_module.chain_display_preview_state(properties)
     curve_deformer = None
     if str(getattr(properties, "cage_type", "STANDARD")) == "CURVE":
         try:
@@ -1303,6 +1474,7 @@ def cage_preview_wire_vertices(
             ), properties,
                 chain_prefix_state=chain_prefix_state,
                 chain_stretch_state=chain_stretch_state,
+                chain_display_state=chain_display_state,
                 curve_deformer_override=curve_deformer,
                 preview_output_frame=preview_output_frame))
             for index in range(steps + 1)
@@ -1314,9 +1486,13 @@ def cage_preview_wire_vertices(
         properties,
         ring_positions,
         preview_state=(preview_signature, preview_output_frame),
+        _chain_display_state=chain_display_state,
     ))
-    return _cache_geometry(
+    result = _cache_geometry(
         _CAGE_WIRE_GEOMETRY_CACHE, signature, tuple(vertices))
+    if throttle_key is not None:
+        _store_wire_shape(throttle_key, signature, result, rebuilt=True)
+    return result
 
 
 def cage_preview_wire_indices(
@@ -1367,6 +1543,10 @@ def cage_preview_guide_geometry(
         _core_module.chain_global_stretch_preview_state(properties))
     chain_prefix_state = (
         _core_module.chain_global_prefix_preview_state(properties))
+    chain_display_state = _CHAIN_DISPLAY_BY_PREVIEW_SIGNATURE.get(
+        preview_signature)
+    if chain_display_state is None:
+        chain_display_state = _core_module.chain_display_preview_state(properties)
     curve_deformer = None
     if str(getattr(properties, "cage_type", "STANDARD")) == "CURVE":
         try:
@@ -1391,6 +1571,7 @@ def cage_preview_guide_geometry(
                 properties,
                 chain_prefix_state=chain_prefix_state,
                 chain_stretch_state=chain_stretch_state,
+                chain_display_state=chain_display_state,
                 curve_deformer_override=curve_deformer,
                 preview_output_frame=preview_output_frame,
             ))
@@ -1432,6 +1613,10 @@ def cage_picker_wire_vertices(properties, steps=12, *, preview_state=None):
         _core_module.chain_global_stretch_preview_state(properties))
     chain_prefix_state = (
         _core_module.chain_global_prefix_preview_state(properties))
+    chain_display_state = _CHAIN_DISPLAY_BY_PREVIEW_SIGNATURE.get(
+        preview_signature)
+    if chain_display_state is None:
+        chain_display_state = _core_module.chain_display_preview_state(properties)
     curve_deformer = None
     if str(getattr(properties, "cage_type", "STANDARD")) == "CURVE":
         try:
@@ -1445,6 +1630,7 @@ def cage_picker_wire_vertices(properties, steps=12, *, preview_state=None):
         (0.0, 0.0, 0.0), properties,
         chain_prefix_state=chain_prefix_state,
         chain_stretch_state=chain_stretch_state,
+        chain_display_state=chain_display_state,
         curve_deformer_override=curve_deformer,
         preview_output_frame=preview_output_frame))
     vertices = tuple(
@@ -1491,21 +1677,41 @@ class SDHCageStagePickerGizmo(Gizmo):
         self.stage_operator = None
 
     def configure(self, target, modifier, controller):
+        previously_bound = (
+            _rna_pointer(getattr(self, "target", None)) ==
+            _rna_pointer(target) and
+            _rna_pointer(getattr(self, "controller", None)) ==
+            _rna_pointer(controller))
         self.target = target
         self.controller = controller
         self.modifier_uuid = str(cage_modifier_uuid(modifier) or "")
         properties = controller.sdh_cage_deform
-        signature, output_frame = cage_preview_geometry_state(properties)
-        picker_signature = ("SDH_CAGE_PICKER_COMPACT_V1", signature)
-        if getattr(self, "geometry_signature", None) != picker_signature:
-            vertices = cage_picker_wire_vertices(
-                properties, preview_state=(signature, output_frame))
-            shape_factory = getattr(self, "new_custom_shape", None)
-            self.custom_shape = (
-                shape_factory("LINES", vertices)
-                if callable(shape_factory) else vertices)
-            self.geometry_signature = picker_signature
-        self.matrix_basis = cage_local_matrix(target, controller)
+        freeze_preview = bool(
+            previously_bound and self.custom_shape is not None and
+            _freeze_for_end_shape_drag(target, controller))
+        if freeze_preview:
+            _request_throttled_redraw()
+        else:
+            signature, output_frame = cage_preview_geometry_state(properties)
+            picker_signature = ("SDH_CAGE_PICKER_COMPACT_V1", signature)
+            if getattr(self, "geometry_signature", None) != picker_signature:
+                throttle_key = ("PICKER", id(self))
+                use_stale, _stale = _throttled_wire_shape(throttle_key)
+                if use_stale and self.custom_shape is not None:
+                    # Keep the previous picker wire during a drag burst; the
+                    # deferred redraw scheduled above rebuilds it when idle.
+                    pass
+                else:
+                    vertices = cage_picker_wire_vertices(
+                        properties, preview_state=(signature, output_frame))
+                    shape_factory = getattr(self, "new_custom_shape", None)
+                    self.custom_shape = (
+                        shape_factory("LINES", vertices)
+                        if callable(shape_factory) else vertices)
+                    self.geometry_signature = picker_signature
+                    _store_wire_shape(
+                        throttle_key, picker_signature, True, rebuilt=True)
+            self.matrix_basis = cage_local_matrix(target, controller)
         style = CONTROLLER_STYLES.get(
             _primary_enabled_type(properties),
             CONTROLLER_STYLES["BEND"],
@@ -2959,7 +3165,8 @@ class SDHCageFFDCornerGizmo(Gizmo):
                 context.area.header_text_set(
                     bpy.app.translations.pgettext_iface(
                         "FFD Edit Mode: drag blank area to box select | "
-                        "G Move | R Rotate | S Scale | Shift Add | "
+                        "G Move; G again Tangent Slide | R Rotate | S Scale | "
+                        "Shift Add | "
                         "Ctrl Subtract | A Select All | Alt+A Clear | "
                         "Double-click blank / Esc / Right Mouse exits"))
             else:
@@ -3208,13 +3415,14 @@ class SDHCageDirectionGizmo(Gizmo):
     )
 
     def setup(self):
-        # Broad satellite-style ring around the evaluated cage section.
+        # Direction ring contained by the evaluated cage section.
         self.custom_shape = self.new_custom_shape(
             "TRIS", _arc_arrow_triangles(-math.pi * 0.95, math.pi * 0.95, 40))
         self.use_tooltip = True
         self.use_draw_modal = True
         self.use_draw_value = False
-        self.scale_basis = 0.5
+        # Avoid Blender's default 1.0-scale flash before the first update.
+        self.scale_basis = 0.32
         self.original_direction = 0.0
         self.stage_target = None
         self.stage_modifier = None
@@ -3237,8 +3445,7 @@ class SDHCageDirectionGizmo(Gizmo):
             cage_local_matrix(target, controller), properties,
             0.0, properties.bend_direction)
         self.matrix_basis = frame
-        self.scale_basis = max(
-            min(cross_radius * BEND_DIRECTION_RING_SCALE, 100.0), 0.32)
+        self.scale_basis = bend_direction_ring_scale(cross_radius)
         self.color, self.color_highlight = TYPE_HANDLE_COLORS["BEND"]
         return True
 
@@ -3894,6 +4101,8 @@ class SDHCageEndShapeGizmo(Gizmo):
             bool(getattr(event, "ctrl", False)),
             bool(getattr(event, "alt", False)),
         )
+        _begin_end_shape_preview_drag(
+            target, modifier, controller, getattr(self, "side", "TOP"))
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event, _tweak):
@@ -3901,10 +4110,12 @@ class SDHCageEndShapeGizmo(Gizmo):
             target, modifier, controller = _invoked_gizmo_stage(self)
         except (AttributeError, ReferenceError, RuntimeError, TypeError,
                 ValueError):
+            _end_shape_preview_drag()
             return {"CANCELLED"}
         if (
                 target is None or modifier is None or controller is None
         ):
+            _end_shape_preview_drag()
             return {"CANCELLED"}
         properties = controller.sdh_cage_deform
         side = getattr(self, "side", "TOP")
@@ -3999,6 +4210,7 @@ class SDHCageEndShapeGizmo(Gizmo):
                     ValueError):
                 pass
         _flush_invoked_chain_updates(self)
+        _end_shape_preview_drag()
         _finish_gizmo_undo(self, cancel=cancel, message="Cage End Shape")
         if context.area:
             context.area.header_text_set(None)
@@ -4514,8 +4726,9 @@ def _prepare_other_stage_bundle(
         bundle, context, target, modifier, controller):
     properties = controller.sdh_cage_deform
     enabled_types = _enabled_deform_types(properties)
-    if not _same_bound_stage(
-            bundle["bound_stage"], target, modifier, controller):
+    binding_changed = not _same_bound_stage(
+        bundle["bound_stage"], target, modifier, controller)
+    if binding_changed:
         for handle in _other_stage_bundle_handles(bundle):
             _bind_gizmo_stage(handle, target, modifier, controller)
         bundle["bound_stage"] = (target, modifier, controller)
@@ -4532,7 +4745,8 @@ def _prepare_other_stage_bundle(
 
     for handle in bundle["ffd_handles"]:
         handle.hide = (
-            "FFD" not in enabled_types or not ffd_handles_enabled())
+            "FFD" not in enabled_types or not ffd_handles_enabled() or
+            bool(getattr(properties, "ffd_native_edit_mode_active", False)))
         # Once the persistent FFD editor is running, it owns point/line/face
         # picking and transforms. Keep the controller visible but remove this
         # parallel Gizmo hit target so Blender cannot cancel the editor while
@@ -4564,11 +4778,41 @@ def _prepare_other_stage_bundle(
                     target, modifier, getattr(handle, "side", "TOP")),
             )
 
-    for handle in _other_stage_bundle_handles(bundle):
-        if not handle.hide and hasattr(handle, "_update_matrix"):
-            _invalidate_matrix_fresh(handle)
-            handle._update_matrix(context)
+    try:
+        stage_pointer = int(controller.as_pointer())
+    except (AttributeError, ReferenceError, RuntimeError, TypeError,
+            ValueError):
+        stage_pointer = id(controller)
+    visible_handles = tuple(
+        handle for handle in _other_stage_bundle_handles(bundle)
+        if not handle.hide and hasattr(handle, "_update_matrix"))
+    visible_ids = tuple(id(handle) for handle in visible_handles)
+    if (
+            not binding_changed and
+            _freeze_for_end_shape_drag(target, controller)
+    ):
+        for handle in visible_handles:
             _mark_matrix_fresh(handle)
+        _request_throttled_redraw()
+        return
+    now = monotonic()
+    if (
+            bundle.get("_matrix_stage") == stage_pointer and
+            bundle.get("_matrix_visible") == visible_ids and
+            now - bundle.get("_matrix_time", 0.0) <
+            _BUNDLE_MATRIX_THROTTLE_WINDOW
+    ):
+        # Inactive-stage handles keep their previously prepared matrices
+        # during an input burst; the active stage stays per-event exact.
+        _request_throttled_redraw()
+        return
+    bundle["_matrix_stage"] = stage_pointer
+    bundle["_matrix_visible"] = visible_ids
+    bundle["_matrix_time"] = now
+    for handle in visible_handles:
+        _invalidate_matrix_fresh(handle)
+        handle._update_matrix(context)
+        _mark_matrix_fresh(handle)
 
 
 class SDHCageDeformGizmoGroup(GizmoGroup):
@@ -4729,6 +4973,23 @@ class SDHCageDeformGizmoGroup(GizmoGroup):
         dedicated_ffd = str(getattr(properties, "cage_type", "")) == "FFD"
         native_ffd_edit = bool(getattr(
             properties, "ffd_native_edit_mode_active", False))
+        if dedicated_ffd and native_ffd_edit:
+            # Blender's native Lattice Edit Mode must be the only control
+            # surface in the viewport. Hiding just the aggregate FFD entities
+            # still leaves boundary/axis controls over the native points.
+            for handle in (
+                    *self.parameter_handles, *self.ffd_handles,
+                    self.direction_handle,
+                    self.top_handle, self.bottom_handle,
+                    self.top_boundary_handle, self.bottom_boundary_handle,
+                    *self.bend_trend_handles, *self.axis_handles):
+                handle.hide = True
+            for handle in self.ffd_handles:
+                handle.ffd_entities = ()
+                handle.picked_entity = None
+            for bundle in other_stage_handle_bundles:
+                _hide_other_stage_bundle(bundle)
+            return
         ffd_entities = []
         if (
                 "FFD" in enabled_types and ffd_handles_enabled() and
@@ -4739,7 +5000,10 @@ class SDHCageDeformGizmoGroup(GizmoGroup):
                     (anchor, selection_mode, orientation)
                     for anchor, orientation in ffd_selection_entities(
                         properties, selection_mode, ensure=False))
-        elif "FFD" in enabled_types and ffd_handles_enabled():
+        elif (
+                "FFD" in enabled_types and ffd_handles_enabled() and
+                not native_ffd_edit
+        ):
             ffd_entities = [
                 (index, "POINT", "POINT")
                 for index in range(len(FFD_CORNERS))]
@@ -4910,7 +5174,11 @@ class SDHCageStagePickerGizmoGroup(GizmoGroup):
         if target is None or active_modifier is None or active_controller is None:
             return False
         properties = getattr(active_controller, "sdh_cage_deform", None)
-        if properties is None or not properties.show_other_cages:
+        if (
+                properties is None or not properties.show_other_cages or
+                bool(getattr(
+                    properties, "ffd_native_edit_mode_active", False))
+        ):
             return False
         for modifier in cage_modifiers(target):
             if modifier == active_modifier or not modifier.show_viewport:
@@ -4945,7 +5213,12 @@ class SDHCageStagePickerGizmoGroup(GizmoGroup):
                 picker.hide = True
             return
         active_properties = getattr(active_controller, "sdh_cage_deform", None)
-        if active_properties is None or not active_properties.show_other_cages:
+        if (
+                active_properties is None or
+                not active_properties.show_other_cages or
+                bool(getattr(
+                    active_properties, "ffd_native_edit_mode_active", False))
+        ):
             for picker in self.pickers:
                 picker.hide = True
             return

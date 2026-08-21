@@ -33,6 +33,7 @@ FFD_COMPONENT_COUNT = len(FFD_CORNERS) * 3
 
 EPSILON = 1.0e-5
 CHAIN_BOUNDARY_EPSILON = 1.0e-4
+CHAIN_GAP_MAX = 0.99
 
 
 def _deform_name(value):

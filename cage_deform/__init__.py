@@ -3,7 +3,22 @@ from __future__ import annotations
 
 import bpy
 
-from . import chain, core, curve, curve_presets, ffd_native_edit, gizmos, merge, ui
+# ``core`` must initialize before ``animation_io`` (core re-exports its
+# names mid-file), so keep it ahead of the extracted feature modules here.
+from . import (
+    chain,
+    core,
+    animation_io,  # noqa: F401 — imported for registration completeness
+    curve,
+    curve_presets,
+    ffd_native_edit,
+    gizmos,
+    merge,
+    stack_presets,
+    stage_apply,
+    stage_mirror,
+    ui,
+)
 from .core import (  # noqa: F401 — public API for draw.py / siblings
     CONTROLLER_MARKER,
     CONTROLLER_STYLES,
@@ -66,6 +81,7 @@ classes = (
     *curve_presets.classes,
     core.SDH_OT_add_cage_deform,
     core.SDH_OT_add_legacy_simple_deform,
+    core.SDH_OT_add_cage_topology,
     core.SDH_OT_add_deform_layer,
     core.SDH_OT_select_deform_layer,
     core.SDH_OT_expand_all_deform_layers,
@@ -97,6 +113,9 @@ classes = (
     chain.SDH_OT_subdivide_cage_to_chain,
     chain.SDH_OT_batch_edit_cage_chain,
     chain.SDH_OT_reconnect_cage_chain,
+    *stage_apply.classes,
+    *stage_mirror.classes,
+    *stack_presets.classes,
     gizmos.SDHCageBendStrengthGizmo,
     gizmos.SDHCageTwistStrengthGizmo,
     gizmos.SDHCageTaperFactorGizmo,
@@ -112,6 +131,8 @@ classes = (
     gizmos.SDHCageStagePickerGizmo,
     gizmos.SDHCageDeformGizmoGroup,
     gizmos.SDHCageStagePickerGizmoGroup,
+    ui.SDH_MT_add_standard_cage_type,
+    ui.SDH_MT_add_standard_chain_type,
     ui.SDH_CAGE_PT_deform,
 )
 
@@ -123,6 +144,7 @@ def _cleanup_registration(*, remove_runtime=True):
     """Best-effort cleanup shared by unregister and failed registration."""
     global _pointer_registered
     gizmos._GIZMO_UNDO_ACTIVE.clear()
+    gizmos.clear_throttled_redraw()
     merge.unregister_runtime()
     curve.finish_curve_edit_sessions(bpy.context, restore_target=False)
     ffd_native_edit.finish_native_edit_sessions(

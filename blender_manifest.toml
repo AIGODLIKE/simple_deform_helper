@@ -7,9 +7,12 @@ maintainer = "ACGGIT"
 name = "Simple Deform Helper"
 tagline = "Easy to deform, easy to animate: keyable cage handles"
 type = "add-on"
-version = "2.7.48"
+version = "2.7.50"
 website = "https://github.com/AIGODLIKE/simple_deform_helper"
 tags = ["3D View", "Modeling"]
+
+[permissions]
+files = "Save cage stack presets and export Alembic animation caches"
 
 [build]
 paths_exclude_pattern = [

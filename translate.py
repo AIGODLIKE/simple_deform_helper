@@ -157,7 +157,7 @@ translations_dict = {
         "\u5728\u524d\u95f4\u9694\u589e\u5927\u65f6\u76f8\u5e94\u7f29\u77ed\u7b3c",
     "Parameter": "\u53c2\u6570",
     "Batch-edit Bend angle": "\u6279\u91cf\u7f16\u8f91\u5f2f\u66f2\u89d2\u5ea6",
-    "Batch-edit Bend direction": "\u6279\u91cf\u7f16\u8f91\u5f2f\u66f2\u65b9\u5411",
+    "Batch-edit Bend direction": "\u6279\u91cf\u7f16\u8f91\u626d\u8f6c\u89d2\u5ea6",
     "Batch-edit Twist angle": "\u6279\u91cf\u7f16\u8f91\u626d\u8f6c\u89d2\u5ea6",
     "Batch-edit Taper factor": "\u6279\u91cf\u7f16\u8f91\u9525\u5316\u7cfb\u6570",
     "Batch-edit Stretch factor": "\u6279\u91cf\u7f16\u8f91\u62c9\u4f38\u7cfb\u6570",
@@ -200,6 +200,8 @@ translations_dict = {
     "Cage chain is broken": "\u7b3c\u94fe\u5df2\u65ad\u5f00",
     "No Cage Chain was found": "\u672a\u627e\u5230\u7b3c\u94fe",
     "Reconnected {count} cage stages": "\u5df2\u91cd\u65b0\u8fde\u63a5 {count} \u4e2a\u7b3c\u9636\u6bb5",
+    "Reconnected {count} cage stages and released the subdivision baseline":
+        "已重新连接 {count} 个笼阶段，并解除细分基线（旧文件修复）",
     "Add Cage Chain": "\u6dfb\u52a0\u7b3c\u94fe",
     "Number of segments to create": "\u8981\u521b\u5efa\u7684\u5206\u6bb5\u6570\u91cf",
     "Connection Mode": "\u8fde\u63a5\u6a21\u5f0f",
@@ -423,7 +425,7 @@ translations_dict = {
     "Factor": "系数",
     "Amount used by Taper and Stretch": "锥化和拉伸所使用的形变量",
     "Direction": "方向",
-    "Direction of Bend around the cage axis": "围绕笼轴线的弯曲方向",
+    "Direction of Bend around the cage axis": "围绕笼轴线的扭转角度",
     "Mode": "范围模式",
     "How geometry outside the cage is handled": "决定如何处理笼外的几何体",
     "Limited": "受限",
@@ -475,9 +477,9 @@ translations_dict = {
     "Show Axis Switch": "显示轴向切换",
     "Show bend-trend choices around the cage; the choices hide after selection unless Ctrl is held":
         "在笼体周围显示弯曲趋势选项；选择后自动隐藏，按住 Ctrl 可保持显示",
-    "Show Bend Direction Handle": "显示弯曲方向手柄",
+    "Show Bend Direction Handle": "显示扭转角度手柄",
     "Show a separate ring for adjusting the Bend direction":
-        "显示用于调整弯曲方向的独立圆环",
+        "显示用于调整扭转角度的独立圆环",
     "Axis Switch": "轴向切换",
     "Direction Ring": "方向圆环",
     "Bend Trend": "弯曲趋势",
@@ -553,7 +555,7 @@ translations_dict = {
         "环绕圆环拖动 • Shift 精细调整 • Ctrl 吸附",
     "Drag Along Axis • Shift Precise • Ctrl Snap":
         "沿轴向拖动 • Shift 精细调整 • Ctrl 吸附",
-    "Bend Direction": "弯曲方向",
+    "Bend Direction": "扭转角度",
     "Set Bend Trend": "设置弯曲趋势",
     "Choose Bend Trend": "选择弯曲趋势",
     "Choose a signed cage axis and one of its two perpendicular bend trends; hold Ctrl to keep all choices visible":
@@ -564,7 +566,7 @@ translations_dict = {
     "Orange double arrow: drag Bend angle":
         "橙色双向箭头：拖动弯曲角度",
     "Small orange double arrow: drag Bend direction":
-        "小型橙色双向箭头：拖动弯曲方向",
+        "小型橙色双向箭头：拖动扭转角度",
     "Large purple twist arc: drag around its center":
         "大型紫色扭转弧：围绕中心拖动",
     "Red / green arrows: horizontal / vertical bend trend":
@@ -664,6 +666,19 @@ translations_dict = {
     "Simple Deform needs more segments to bend smoothly.":
         "简易形变需要更多分段才能平滑弯曲。",
     "Add Subdivision Before Deform": "在形变前添加细分",
+    "Add a Subdivision Surface modifier before the active deformation stage "
+    "so bending has enough segments":
+        "在当前形变阶段之前添加表面细分修改器，让弯曲有足够的分段",
+    "Simple Subdivision": "简单型细分",
+    "Add straight loop cuts without smoothing": "只添加环切，不做平滑",
+    "Smooth while subdividing": "细分的同时进行平滑（Catmull-Clark）",
+    "Subdivision was added at the end; move it before the deformation stage":
+        "细分已添加到堆栈末尾；请手动移到形变阶段之前",
+    "Current cage Geometry Nodes modifier is not selected":
+        "当前笼几何节点未被选中",
+    "Select a stage above to edit its cage controls.":
+        "在上方形变堆栈中选择一个阶段，即可编辑它的笼控制。",
+    "Create": "创建",
     "Add a non-destructive subdivision modifier before the active Simple Deform":
         "在活动简易形变之前添加非破坏性细分修改器",
     "Switch Simple Deform Stage": "切换简易形变阶段",
@@ -870,6 +885,8 @@ translations_ja_JP = _localized_catalog({
     "Cage chain is broken": "ケージチェーンが切れています",
     "No Cage Chain was found": "ケージチェーンが見つかりません",
     "Reconnected {count} cage stages": "{count} 個のケージステージを再接続しました",
+    "Reconnected {count} cage stages and released the subdivision baseline":
+        "{count} 個のケージステージを再接続し、細分化ベースラインを解除しました",
     "Add Cage Chain": "ケージチェーンを追加",
     "Number of segments to create": "作成するセグメント数",
     "Connection Mode": "接続モード",
@@ -1223,6 +1240,19 @@ translations_ja_JP = _localized_catalog({
     "Follow-limit Origin modes are disabled.": "制限追従の原点モードは無効です。",
     "Simple Deform needs more segments to bend smoothly.": "Simple Deform を滑らかに曲げるには、さらにセグメントが必要です。",
     "Add Subdivision Before Deform": "変形前に細分化を追加",
+    "Add a Subdivision Surface modifier before the active deformation stage "
+    "so bending has enough segments":
+        "アクティブな変形ステージの前にサブディビジョンサーフェスモディファイアーを追加します",
+    "Simple Subdivision": "シンプル細分化",
+    "Add straight loop cuts without smoothing": "スムージングせずにループカットを追加",
+    "Smooth while subdividing": "細分化しながらスムージング（Catmull-Clark）",
+    "Subdivision was added at the end; move it before the deformation stage":
+        "細分化は末尾に追加されました。変形ステージの前に移動してください",
+    "Current cage Geometry Nodes modifier is not selected":
+        "現在のケージのジオメトリノードが選択されていません",
+    "Select a stage above to edit its cage controls.":
+        "上のスタックでステージを選択するとケージ操作を編集できます。",
+    "Create": "作成",
     "Add a non-destructive subdivision modifier before the active Simple Deform": "アクティブな Simple Deform の前に非破壊の細分化修正子を追加",
     "Switch Simple Deform Stage": "Simple Deform ステージを切替",
     "Make the previous or next Simple Deform modifier active": "前または次の Simple Deform 修正子をアクティブにする",
@@ -1404,6 +1434,8 @@ translations_ko_KR = _localized_catalog({
     "Cage chain is broken": "케이지 체인이 끊어져 있습니다",
     "No Cage Chain was found": "케이지 체인을 찾지 못했습니다",
     "Reconnected {count} cage stages": "케이지 스테이지 {count}개를 다시 연결했습니다",
+    "Reconnected {count} cage stages and released the subdivision baseline":
+        "케이지 스테이지 {count}개를 다시 연결하고 세분 기준선을 해제했습니다",
     "Add Cage Chain": "케이지 체인 추가",
     "Number of segments to create": "만들 세그먼트 수",
     "Connection Mode": "연결 모드",
@@ -1757,6 +1789,19 @@ translations_ko_KR = _localized_catalog({
     "Follow-limit Origin modes are disabled.": "제한 추종 원점 모드가 비활성화되어 있습니다.",
     "Simple Deform needs more segments to bend smoothly.": "Simple Deform을 부드럽게 구부리려면 세그먼트가 더 필요합니다.",
     "Add Subdivision Before Deform": "변형 전에 세분 추가",
+    "Add a Subdivision Surface modifier before the active deformation stage "
+    "so bending has enough segments":
+        "활성 변형 스테이지 앞에 섭디비전 서피스 모디파이어를 추가합니다",
+    "Simple Subdivision": "단순 세분",
+    "Add straight loop cuts without smoothing": "스무딩 없이 루프 컷만 추가",
+    "Smooth while subdividing": "세분하면서 스무딩(Catmull-Clark)",
+    "Subdivision was added at the end; move it before the deformation stage":
+        "세분이 스택 끝에 추가되었습니다. 변형 스테이지 앞으로 이동하세요",
+    "Current cage Geometry Nodes modifier is not selected":
+        "현재 케이지 지오메트리 노드가 선택되지 않았습니다",
+    "Select a stage above to edit its cage controls.":
+        "위 스택에서 스테이지를 선택하면 케이지 컨트롤을 편집할 수 있습니다.",
+    "Create": "만들기",
     "Add a non-destructive subdivision modifier before the active Simple Deform": "활성 Simple Deform 앞에 비파괴 세분 수정자 추가",
     "Switch Simple Deform Stage": "Simple Deform 스테이지 전환",
     "Make the previous or next Simple Deform modifier active": "이전 또는 다음 Simple Deform 수정자를 활성으로 설정",
@@ -2096,8 +2141,15 @@ _FFD_MULTI_ZH = {
     "FFD Edit Mode": "FFD 编辑模式",
     "Whether persistent FFD point editing is active in the viewport":
         "是否在视口中启用持续 FFD 控制点编辑",
-    "FFD Edit Mode: drag blank area to box select | G Move | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | I Key | Alt+I Delete Key | Alt+R Reset | Double-click blank / Esc / Right Mouse exits":
-        "FFD 编辑模式：拖动空白处框选 | G 移动 | R 旋转 | S 缩放 | Shift 加选 | Ctrl 减选 | A 全选 | Alt+A 清空 | I 插帧 | Alt+I 删除关键帧 | Alt+R 重置 | 双击空白 / Esc / 右键退出",
+    "FFD Edit Mode: drag blank area to box select | G Move; G again Tangent Slide | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | I Key | Alt+I Delete Key | Alt+R Reset | Double-click blank / Esc / Right Mouse exits":
+        "FFD 编辑模式：拖动空白处框选 | G 移动；再次按 G 沿切向滑移 | R 旋转 | S 缩放 | Shift 加选 | Ctrl 减选 | A 全选 | Alt+A 清空 | I 插帧 | Alt+I 删除关键帧 | Alt+R 重置 | 双击空白 / Esc / 右键退出",
+    "FFD Edit Mode: drag blank area to box select | G Move; G again Tangent Slide | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | Double-click blank / Esc / Right Mouse exits":
+        "FFD 编辑模式：拖动空白处框选 | G 移动；再次按 G 沿切向滑移 | R 旋转 | S 缩放 | Shift 加选 | Ctrl 减选 | A 全选 | Alt+A 清空 | 双击空白 / Esc / 右键退出",
+    "Tangent Slide": "切向滑移",
+    "Mouse Transform | G Tangent Slide | X/Y/Z Global; Repeat for Cage Local | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
+        "鼠标变换 | G 切向滑移 | X/Y/Z 全局轴；重复按同一轴切换笼局部轴 | Shift 精确 | Ctrl 吸附 | 单击/Enter 确认 | Esc/右键取消",
+    "Mouse Slide Along Tangent | G Return to Move | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
+        "鼠标沿切向滑移 | G 返回移动 | Shift 精确 | Ctrl 吸附 | 单击/Enter 确认 | Esc/右键取消",
     "Mouse Transform | X/Y/Z Cage Axis | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
         "鼠标变换 | X/Y/Z 笼局部轴 | Shift 精细 | Ctrl 吸附 | 单击/回车确认 | Esc/右键取消",
     "Select at least one FFD control point": "请至少选择一个 FFD 控制点",
@@ -2163,8 +2215,15 @@ _FFD_MULTI_JA = {
     "FFD Edit Mode": "FFD 編集モード",
     "Whether persistent FFD point editing is active in the viewport":
         "ビューポートで継続的な FFD 制御点編集が有効かどうか",
-    "FFD Edit Mode: drag blank area to box select | G Move | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | I Key | Alt+I Delete Key | Alt+R Reset | Double-click blank / Esc / Right Mouse exits":
-        "FFD 編集モード：空白をドラッグしてボックス選択 | G 移動 | R 回転 | S スケール | Shift 追加 | Ctrl 除外 | A 全選択 | Alt+A 解除 | I キー挿入 | Alt+I キー削除 | Alt+R リセット | 空白をダブルクリック / Esc / 右クリックで終了",
+    "FFD Edit Mode: drag blank area to box select | G Move; G again Tangent Slide | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | I Key | Alt+I Delete Key | Alt+R Reset | Double-click blank / Esc / Right Mouse exits":
+        "FFD 編集モード：空白をドラッグしてボックス選択 | G 移動；もう一度 G で接線スライド | R 回転 | S スケール | Shift 追加 | Ctrl 除外 | A 全選択 | Alt+A 解除 | I キー挿入 | Alt+I キー削除 | Alt+R リセット | 空白をダブルクリック / Esc / 右クリックで終了",
+    "FFD Edit Mode: drag blank area to box select | G Move; G again Tangent Slide | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | Double-click blank / Esc / Right Mouse exits":
+        "FFD 編集モード：空白をドラッグしてボックス選択 | G 移動；もう一度 G で接線スライド | R 回転 | S スケール | Shift 追加 | Ctrl 除外 | A 全選択 | Alt+A 解除 | 空白をダブルクリック / Esc / 右クリックで終了",
+    "Tangent Slide": "接線スライド",
+    "Mouse Transform | G Tangent Slide | X/Y/Z Global; Repeat for Cage Local | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
+        "マウス変形 | G 接線スライド | X/Y/Z グローバル軸；同じ軸を再入力でケージローカル | Shift 精密 | Ctrl スナップ | クリック/Enter 確定 | Esc/右クリック キャンセル",
+    "Mouse Slide Along Tangent | G Return to Move | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
+        "マウスで接線方向にスライド | G で移動に戻る | Shift 精密 | Ctrl スナップ | クリック/Enter 確定 | Esc/右クリック キャンセル",
     "Mouse Transform | X/Y/Z Cage Axis | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
         "マウスで変形 | X/Y/Z ケージローカル軸 | Shift 精密 | Ctrl スナップ | クリック/Enter 確定 | Esc/右クリック キャンセル",
     "Select at least one FFD control point": "FFD 制御点を1つ以上選択してください",
@@ -2230,8 +2289,15 @@ _FFD_MULTI_KO = {
     "FFD Edit Mode": "FFD 편집 모드",
     "Whether persistent FFD point editing is active in the viewport":
         "뷰포트에서 지속적인 FFD 제어점 편집을 활성화할지 여부",
-    "FFD Edit Mode: drag blank area to box select | G Move | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | I Key | Alt+I Delete Key | Alt+R Reset | Double-click blank / Esc / Right Mouse exits":
-        "FFD 편집 모드: 빈 공간 드래그로 상자 선택 | G 이동 | R 회전 | S 크기 조절 | Shift 추가 | Ctrl 제외 | A 전체 선택 | Alt+A 선택 해제 | I 키 삽입 | Alt+I 키 삭제 | Alt+R 초기화 | 빈 공간 두 번 클릭 / Esc / 오른쪽 클릭으로 종료",
+    "FFD Edit Mode: drag blank area to box select | G Move; G again Tangent Slide | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | I Key | Alt+I Delete Key | Alt+R Reset | Double-click blank / Esc / Right Mouse exits":
+        "FFD 편집 모드: 빈 공간 드래그로 상자 선택 | G 이동; G를 다시 눌러 접선 슬라이드 | R 회전 | S 크기 조절 | Shift 추가 | Ctrl 제외 | A 전체 선택 | Alt+A 선택 해제 | I 키 삽입 | Alt+I 키 삭제 | Alt+R 초기화 | 빈 공간 두 번 클릭 / Esc / 오른쪽 클릭으로 종료",
+    "FFD Edit Mode: drag blank area to box select | G Move; G again Tangent Slide | R Rotate | S Scale | Shift Add | Ctrl Subtract | A Select All | Alt+A Clear | Double-click blank / Esc / Right Mouse exits":
+        "FFD 편집 모드: 빈 공간 드래그로 상자 선택 | G 이동; G를 다시 눌러 접선 슬라이드 | R 회전 | S 크기 조절 | Shift 추가 | Ctrl 제외 | A 전체 선택 | Alt+A 선택 해제 | 빈 공간 두 번 클릭 / Esc / 오른쪽 클릭으로 종료",
+    "Tangent Slide": "접선 슬라이드",
+    "Mouse Transform | G Tangent Slide | X/Y/Z Global; Repeat for Cage Local | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
+        "마우스 변형 | G 접선 슬라이드 | X/Y/Z 전역 축; 같은 축을 다시 눌러 케이지 로컬 | Shift 정밀 | Ctrl 스냅 | 클릭/Enter 확인 | Esc/오른쪽 클릭 취소",
+    "Mouse Slide Along Tangent | G Return to Move | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
+        "마우스로 접선을 따라 슬라이드 | G로 이동 모드 복귀 | Shift 정밀 | Ctrl 스냅 | 클릭/Enter 확인 | Esc/오른쪽 클릭 취소",
     "Mouse Transform | X/Y/Z Cage Axis | Shift Precise | Ctrl Snap | Click/Enter Confirm | Esc/Right Mouse Cancel":
         "마우스 변형 | X/Y/Z 케이지 로컬 축 | Shift 정밀 | Ctrl 스냅 | 클릭/Enter 확인 | Esc/오른쪽 클릭 취소",
     "Select at least one FFD control point": "FFD 제어점을 하나 이상 선택하세요",
@@ -2382,7 +2448,7 @@ _RECENT_UI_ZH = {
     "Show editable FFD control-point handles": "显示可编辑的 FFD 控制点手柄",
     "Show inline controls that edit several cages immediately":
         "显示可实时编辑多个笼的行内控件",
-    "Show the ring used to adjust the Bend direction": "显示用于调整弯曲方向的圆环",
+    "Show the ring used to adjust the Bend direction": "显示用于调整扭转角度的圆环",
     "X and Z scale applied to every affected cage end": "应用到每个受影响笼端部的 X、Z 缩放",
     "X and Z offset applied to every affected cage end": "应用到每个受影响笼端部的 X、Z 偏移",
     "Spacing before every affected downstream cage": "每个受影响下游笼之前的间隔",
@@ -4219,6 +4285,395 @@ translations_ja_JP.update(_FFD_NATIVE_WEIGHT_JA)
 translations_ko_KR.update(_FFD_NATIVE_WEIGHT_KO)
 
 
+# 2.7.50: apply/collapse, mirrored stages, stack presets, bake outputs,
+# layer keyframes, influence weights, and arc-length station resampling.
+_STACK_TOOLS_ZH = {
+    "Apply Stage": "应用此阶段",
+    "Apply All Stages": "应用全部阶段",
+    "Apply this deformation stage to the mesh and remove its cage controls":
+        "将此形变阶段应用到网格，并移除其笼控制",
+    "Apply every managed cage and traditional Simple Deform stage to the mesh, in stack order, and remove their controls":
+        "按堆栈顺序将所有受管笼与传统简易形变阶段应用到网格，并移除其控制",
+    "Applied deformation stage": "已应用形变阶段",
+    "Applied {count} deformation stages": "已应用 {count} 个形变阶段",
+    "Applied {count} stages before stopping": "中止前已应用 {count} 个阶段",
+    "Apply requires a mesh target": "应用需要网格类型的目标物体",
+    "Could not apply modifier {name}": "无法应用修改器 {name}",
+    "Partially applied stage; {name} could not be applied":
+        "阶段仅部分应用；{name} 未能应用",
+    "Mirror": "镜像",
+    "Mirror Cage Stage": "镜像笼阶段",
+    "Mirror Axis": "镜像轴",
+    "Target-local axis to mirror across": "以目标局部轴为镜像平面法向",
+    "Duplicate this cage stage mirrored across a target-local axis":
+        "沿目标局部轴镜像复制此笼阶段",
+    "Mirrored cage stage across {axis}": "已沿 {axis} 轴镜像笼阶段",
+    "Guide point animation is not mirrored; remove it and mirror again for an exact result":
+        "引导线点动画未被镜像；移除动画后重新镜像可获得精确结果",
+    "Save Preset": "保存预设",
+    "Load Preset": "加载预设",
+    "Save Stack Preset": "保存堆栈预设",
+    "Load Stack Preset": "加载堆栈预设",
+    "Delete Stack Preset": "删除堆栈预设",
+    "Save every managed cage stage on this object as a reusable preset":
+        "将该物体上所有受管笼阶段保存为可复用预设",
+    "Append a saved cage stack preset to the active object":
+        "将已保存的笼堆栈预设追加到活动物体",
+    "Delete one saved cage stack preset": "删除一个已保存的笼堆栈预设",
+    "Preset Name": "预设名称",
+    "Saved cage stack preset": "已保存的笼堆栈预设",
+    "No presets saved": "没有已保存的预设",
+    "No managed cage stages found": "未找到受管笼阶段",
+    "Not a cage stack preset file": "不是笼堆栈预设文件",
+    "The preset contains no cage stages": "该预设不包含任何笼阶段",
+    "Preset chains could not be reconnected": "预设中的链无法重新连接",
+    "Saved {count} stages to preset {name}":
+        "已将 {count} 个阶段保存到预设 {name}",
+    "Added {count} stages from preset {name}":
+        "已从预设 {name} 添加 {count} 个阶段",
+    "Deleted preset {name}": "已删除预设 {name}",
+    "Key Active Layer": "键帧当前层",
+    "Delete Layer Keys": "删除当前层键帧",
+    "Active Layer Only": "仅当前层",
+    "Key only the active deformation layer's parameters":
+        "只为当前形变层的参数插入关键帧",
+    "Delete keys only for the active deformation layer's parameters":
+        "只删除当前形变层参数的关键帧",
+    "Output": "输出方式",
+    "New Object": "新建物体",
+    "Replace Source": "替换源物体",
+    "Alembic File": "Alembic 文件",
+    "Alembic Path": "Alembic 路径",
+    "Bake absolute shape keys onto a new independent mesh object":
+        "烘焙为新独立网格物体上的绝对形态键",
+    "Bake to a new mesh, remove the managed deformation stack and the source object, and take over the source name":
+        "烘焙到新网格，移除受管形变堆栈与源物体，并接管源物体名称",
+    "Export the evaluated animation to an Alembic (.abc) cache without creating shape keys":
+        "将求值后的动画导出为 Alembic (.abc) 缓存，不创建形态键",
+    "Bake the evaluated cage animation to shape keys, replace the source in place, or export an Alembic file":
+        "将求值后的笼动画烘焙为形态键、原地替换源物体或导出 Alembic 文件",
+    "Scene frames between baked samples; values below 1.0 add subframe samples":
+        "烘焙采样之间的场景帧数；小于 1.0 时增加子帧采样",
+    "Sample Step must be at least 0.01": "采样步长不能小于 0.01",
+    "Exported Alembic cache to {path}": "已导出 Alembic 缓存到 {path}",
+    "Choose an Alembic output path first": "请先选择 Alembic 输出路径",
+    "Alembic export did not finish": "Alembic 导出未完成",
+    "Replace Source is unavailable for multi-object merges; bake to a new object instead":
+        "多物体合并不支持替换源物体；请烘焙到新物体",
+    "Baked, but the source could not be replaced: {error}":
+        "已烘焙，但源物体无法替换：{error}",
+    "Even Stations by Arc Length": "按弧长均匀分布站点",
+    "Redistribute the existing cross-section stations evenly along the guide's arc length":
+        "将现有横截面站点沿引导线弧长均匀重新分布",
+    "Stations redistributed by arc length": "站点已按弧长重新分布",
+    "Influence Weight": "影响权重",
+    "Influence Vertex Group": "影响顶点组",
+    "Blend between the original and deformed positions for this stage; combine with a vertex group for painted falloff":
+        "在原始与形变位置之间混合此阶段的结果；配合顶点组可实现绘制衰减",
+    "Limit this stage to a vertex group; weights scale the Influence Weight per point":
+        "将此阶段限制在顶点组内；权重逐点缩放影响权重",
+    "Shortcut Cheat Sheet": "快捷键速查",
+    "Animated stages cannot be mirrored yet; bake or remove their animation first":
+        "暂不支持镜像带动画的阶段；请先烘焙或移除动画",
+    "Replace Source requires a mesh target; bake to a new object instead":
+        "替换源物体需要网格目标；请改为烘焙到新物体",
+    "The baked result has no mesh data": "烘焙结果不包含网格数据",
+    "Source replacement failed: {error}": "替换源物体失败：{error}",
+    "Unsupported cage stack preset version": "不支持的笼堆栈预设版本",
+    "Preset stage {index} is invalid": "预设阶段 {index} 无效",
+    "Preset stage {index} has no properties": "预设阶段 {index} 缺少属性",
+    "Preset stage {index} contains unknown properties: {names}":
+        "预设阶段 {index} 包含未知属性：{names}",
+    "Preset stage {index} has an unsupported cage type":
+        "预设阶段 {index} 使用了不支持的笼类型",
+    "Preset stage {index} exceeds the FFD 6 x 6 x 6 limit":
+        "预设阶段 {index} 超出 FFD 6 x 6 x 6 上限",
+    "Preset stage {index} has an invalid FFD point count":
+        "预设阶段 {index} 的 FFD 点数量无效",
+    "Link U/V/W": "联动 U/V/W",
+    "Adjust FFD point counts and interpolation together; disable to edit U, V, and W independently":
+        "同时调整 FFD 的点数与插值；关闭后可分别编辑 U、V、W",
+    "FFD Points": "FFD 点数",
+    "Number of control points on all linked FFD axes":
+        "所有联动 FFD 轴的控制点数量",
+    "Interpolation": "插值",
+    "Interpolation basis on all linked FFD axes":
+        "所有联动 FFD 轴使用的插值基函数",
+}
+_STACK_TOOLS_JA = {
+    "Apply Stage": "ステージを適用",
+    "Apply All Stages": "全ステージを適用",
+    "Applied deformation stage": "変形ステージを適用しました",
+    "Applied {count} deformation stages": "{count} 個の変形ステージを適用しました",
+    "Apply requires a mesh target": "適用にはメッシュターゲットが必要です",
+    "Mirror": "ミラー",
+    "Mirror Cage Stage": "ケージステージをミラー",
+    "Mirror Axis": "ミラー軸",
+    "Mirrored cage stage across {axis}": "{axis} 軸でケージステージをミラーしました",
+    "Save Preset": "プリセットを保存",
+    "Load Preset": "プリセットを読み込み",
+    "Save Stack Preset": "スタックプリセットを保存",
+    "Load Stack Preset": "スタックプリセットを読み込み",
+    "Delete Stack Preset": "スタックプリセットを削除",
+    "Preset Name": "プリセット名",
+    "No presets saved": "保存されたプリセットはありません",
+    "Saved {count} stages to preset {name}": "{count} 個のステージをプリセット {name} に保存しました",
+    "Added {count} stages from preset {name}": "プリセット {name} から {count} 個のステージを追加しました",
+    "Deleted preset {name}": "プリセット {name} を削除しました",
+    "Key Active Layer": "アクティブレイヤーをキー",
+    "Delete Layer Keys": "レイヤーキーを削除",
+    "Output": "出力",
+    "New Object": "新規オブジェクト",
+    "Replace Source": "ソースを置き換え",
+    "Alembic File": "Alembic ファイル",
+    "Alembic Path": "Alembic パス",
+    "Exported Alembic cache to {path}": "Alembic キャッシュを {path} に書き出しました",
+    "Even Stations by Arc Length": "弧長で断面を均等配置",
+    "Stations redistributed by arc length": "断面を弧長で再配置しました",
+    "Influence Weight": "影響ウェイト",
+    "Influence Vertex Group": "影響頂点グループ",
+    "Shortcut Cheat Sheet": "ショートカット早見表",
+    "Animated stages cannot be mirrored yet; bake or remove their animation first":
+        "アニメーション付きステージはまだミラーできません。先にベイクまたはアニメーションを削除してください",
+    "Applied {count} stages before stopping": "停止前に {count} ステージを適用しました",
+    "Choose an Alembic output path first": "先に Alembic 出力パスを選択してください",
+    "Alembic export did not finish": "Alembic の書き出しが完了しませんでした",
+    "Could not apply modifier {name}": "モディファイアー {name} を適用できませんでした",
+    "Guide point animation is not mirrored; remove it and mirror again for an exact result":
+        "ガイドポイントのアニメーションはミラーされません。削除して再度ミラーしてください",
+    "No managed cage stages found": "管理対象のケージステージが見つかりません",
+    "Not a cage stack preset file": "ケージスタックプリセットではありません",
+    "Partially applied stage; {name} could not be applied":
+        "ステージの一部のみ適用され、{name} は適用できませんでした",
+    "Replace Source is unavailable for multi-object merges; bake to a new object instead":
+        "複数オブジェクトの結合ではソース置換を使用できません。新規オブジェクトへベイクしてください",
+    "Replace Source requires a mesh target; bake to a new object instead":
+        "ソース置換にはメッシュターゲットが必要です。新規オブジェクトへベイクしてください",
+    "Sample Step must be at least 0.01": "サンプル間隔は 0.01 以上にしてください",
+    "Saved cage stack preset": "保存済みケージスタックプリセット",
+    "Source replacement failed: {error}": "ソースの置換に失敗しました: {error}",
+    "The baked result has no mesh data": "ベイク結果にメッシュデータがありません",
+    "The preset contains no cage stages": "プリセットにケージステージがありません",
+    "Unsupported cage stack preset version": "未対応のケージスタックプリセットバージョンです",
+    "Preset stage {index} is invalid": "プリセットステージ {index} が無効です",
+    "Preset stage {index} has no properties": "プリセットステージ {index} にプロパティがありません",
+    "Preset stage {index} contains unknown properties: {names}":
+        "プリセットステージ {index} に未知のプロパティがあります: {names}",
+    "Preset stage {index} has an unsupported cage type":
+        "プリセットステージ {index} のケージタイプは未対応です",
+    "Preset stage {index} exceeds the FFD 6 x 6 x 6 limit":
+        "プリセットステージ {index} が FFD 6 x 6 x 6 の上限を超えています",
+    "Preset stage {index} has an invalid FFD point count":
+        "プリセットステージ {index} の FFD ポイント数が無効です",
+    "Link U/V/W": "U/V/W を連動",
+    "Adjust FFD point counts and interpolation together; disable to edit U, V, and W independently":
+        "FFD のポイント数と補間をまとめて調整します。無効にすると U、V、W を個別に編集できます",
+    "FFD Points": "FFD ポイント数",
+    "Number of control points on all linked FFD axes":
+        "連動するすべての FFD 軸の制御ポイント数",
+    "Interpolation": "補間",
+    "Interpolation basis on all linked FFD axes":
+        "連動するすべての FFD 軸で使用する補間方式",
+}
+_STACK_TOOLS_KO = {
+    "Apply Stage": "스테이지 적용",
+    "Apply All Stages": "모든 스테이지 적용",
+    "Applied deformation stage": "변형 스테이지를 적용했습니다",
+    "Applied {count} deformation stages": "{count}개의 변형 스테이지를 적용했습니다",
+    "Apply requires a mesh target": "적용하려면 메시 대상이 필요합니다",
+    "Mirror": "미러",
+    "Mirror Cage Stage": "케이지 스테이지 미러",
+    "Mirror Axis": "미러 축",
+    "Mirrored cage stage across {axis}": "{axis} 축으로 케이지 스테이지를 미러했습니다",
+    "Save Preset": "프리셋 저장",
+    "Load Preset": "프리셋 불러오기",
+    "Save Stack Preset": "스택 프리셋 저장",
+    "Load Stack Preset": "스택 프리셋 불러오기",
+    "Delete Stack Preset": "스택 프리셋 삭제",
+    "Preset Name": "프리셋 이름",
+    "No presets saved": "저장된 프리셋이 없습니다",
+    "Saved {count} stages to preset {name}": "{count}개의 스테이지를 프리셋 {name}에 저장했습니다",
+    "Added {count} stages from preset {name}": "프리셋 {name}에서 {count}개의 스테이지를 추가했습니다",
+    "Deleted preset {name}": "프리셋 {name}을(를) 삭제했습니다",
+    "Key Active Layer": "활성 레이어 키",
+    "Delete Layer Keys": "레이어 키 삭제",
+    "Output": "출력",
+    "New Object": "새 오브젝트",
+    "Replace Source": "소스 교체",
+    "Alembic File": "Alembic 파일",
+    "Alembic Path": "Alembic 경로",
+    "Exported Alembic cache to {path}": "Alembic 캐시를 {path}에 내보냈습니다",
+    "Even Stations by Arc Length": "호 길이로 단면 균등 배치",
+    "Stations redistributed by arc length": "호 길이에 따라 단면을 재배치했습니다",
+    "Influence Weight": "영향 가중치",
+    "Influence Vertex Group": "영향 버텍스 그룹",
+    "Shortcut Cheat Sheet": "단축키 참고표",
+    "Animated stages cannot be mirrored yet; bake or remove their animation first":
+        "애니메이션이 있는 스테이지는 아직 미러할 수 없습니다. 먼저 베이크하거나 애니메이션을 제거하세요",
+    "Applied {count} stages before stopping": "중지 전 {count}개 스테이지를 적용했습니다",
+    "Choose an Alembic output path first": "먼저 Alembic 출력 경로를 선택하세요",
+    "Alembic export did not finish": "Alembic 내보내기가 완료되지 않았습니다",
+    "Could not apply modifier {name}": "모디파이어 {name}을 적용할 수 없습니다",
+    "Guide point animation is not mirrored; remove it and mirror again for an exact result":
+        "가이드 포인트 애니메이션은 미러되지 않습니다. 제거한 뒤 다시 미러하세요",
+    "No managed cage stages found": "관리되는 케이지 스테이지를 찾지 못했습니다",
+    "Not a cage stack preset file": "케이지 스택 프리셋 파일이 아닙니다",
+    "Partially applied stage; {name} could not be applied":
+        "스테이지가 일부만 적용되었으며 {name}은 적용하지 못했습니다",
+    "Replace Source is unavailable for multi-object merges; bake to a new object instead":
+        "다중 오브젝트 병합에서는 소스 교체를 사용할 수 없습니다. 새 오브젝트로 베이크하세요",
+    "Replace Source requires a mesh target; bake to a new object instead":
+        "소스 교체에는 메시 대상이 필요합니다. 새 오브젝트로 베이크하세요",
+    "Sample Step must be at least 0.01": "샘플 간격은 0.01 이상이어야 합니다",
+    "Saved cage stack preset": "저장된 케이지 스택 프리셋",
+    "Source replacement failed: {error}": "소스 교체 실패: {error}",
+    "The baked result has no mesh data": "베이크 결과에 메시 데이터가 없습니다",
+    "The preset contains no cage stages": "프리셋에 케이지 스테이지가 없습니다",
+    "Unsupported cage stack preset version": "지원하지 않는 케이지 스택 프리셋 버전입니다",
+    "Preset stage {index} is invalid": "프리셋 스테이지 {index}이(가) 올바르지 않습니다",
+    "Preset stage {index} has no properties": "프리셋 스테이지 {index}에 속성이 없습니다",
+    "Preset stage {index} contains unknown properties: {names}":
+        "프리셋 스테이지 {index}에 알 수 없는 속성이 있습니다: {names}",
+    "Preset stage {index} has an unsupported cage type":
+        "프리셋 스테이지 {index}의 케이지 유형은 지원되지 않습니다",
+    "Preset stage {index} exceeds the FFD 6 x 6 x 6 limit":
+        "프리셋 스테이지 {index}이(가) FFD 6 x 6 x 6 제한을 초과합니다",
+    "Preset stage {index} has an invalid FFD point count":
+        "프리셋 스테이지 {index}의 FFD 포인트 수가 올바르지 않습니다",
+    "Link U/V/W": "U/V/W 연동",
+    "Adjust FFD point counts and interpolation together; disable to edit U, V, and W independently":
+        "FFD 포인트 수와 보간을 함께 조정합니다. 끄면 U, V, W를 개별 편집할 수 있습니다",
+    "FFD Points": "FFD 포인트 수",
+    "Number of control points on all linked FFD axes":
+        "연동된 모든 FFD 축의 제어 포인트 수",
+    "Interpolation": "보간",
+    "Interpolation basis on all linked FFD axes":
+        "연동된 모든 FFD 축에 사용할 보간 방식",
+}
+translations_dict.update(_STACK_TOOLS_ZH)
+translations_ja_JP.update(_STACK_TOOLS_JA)
+translations_ko_KR.update(_STACK_TOOLS_KO)
+translations_en_US.update({source: source for source in _STACK_TOOLS_ZH})
+
+_STANDARD_INITIAL_DEFORM_ZH = {
+    "Other Deformation": "其他形变",
+    "Initial Deformation": "初始形变",
+    "Create the Standard cage with a Bend layer":
+        "创建以弯曲层初始化的标准型笼",
+    "Create the Standard cage with a Twist layer":
+        "创建以扭曲层初始化的标准型笼",
+    "Create the Standard cage with a Taper layer":
+        "创建以锥化层初始化的标准型笼",
+    "Create the Standard cage with a Stretch layer":
+        "创建以拉伸层初始化的标准型笼",
+    "Create the Standard cage with a Shear layer":
+        "创建以斜切层初始化的标准型笼",
+    "Create every Standard chain stage with a Bend layer":
+        "使用弯曲层初始化每个标准型链式阶段",
+    "Create every Standard chain stage with a Twist layer":
+        "使用扭曲层初始化每个标准型链式阶段",
+    "Create every Standard chain stage with a Taper layer":
+        "使用锥化层初始化每个标准型链式阶段",
+    "Create every Standard chain stage with a Stretch layer":
+        "使用拉伸层初始化每个标准型链式阶段",
+    "Create every Standard chain stage with a Shear layer":
+        "使用斜切层初始化每个标准型链式阶段",
+}
+_STANDARD_INITIAL_DEFORM_JA = {
+    "Other Deformation": "その他の変形",
+    "Initial Deformation": "初期変形",
+    "Create the Standard cage with a Bend layer":
+        "ベンドレイヤーで標準型ケージを作成",
+    "Create the Standard cage with a Twist layer":
+        "ツイストレイヤーで標準型ケージを作成",
+    "Create the Standard cage with a Taper layer":
+        "テーパーレイヤーで標準型ケージを作成",
+    "Create the Standard cage with a Stretch layer":
+        "ストレッチレイヤーで標準型ケージを作成",
+    "Create the Standard cage with a Shear layer":
+        "シアーレイヤーで標準型ケージを作成",
+    "Create every Standard chain stage with a Bend layer":
+        "各標準型チェーンステージをベンドレイヤーで初期化",
+    "Create every Standard chain stage with a Twist layer":
+        "各標準型チェーンステージをツイストレイヤーで初期化",
+    "Create every Standard chain stage with a Taper layer":
+        "各標準型チェーンステージをテーパーレイヤーで初期化",
+    "Create every Standard chain stage with a Stretch layer":
+        "各標準型チェーンステージをストレッチレイヤーで初期化",
+    "Create every Standard chain stage with a Shear layer":
+        "各標準型チェーンステージをシアーレイヤーで初期化",
+}
+_STANDARD_INITIAL_DEFORM_KO = {
+    "Other Deformation": "다른 변형",
+    "Initial Deformation": "초기 변형",
+    "Create the Standard cage with a Bend layer":
+        "벤드 레이어로 표준형 케이지 생성",
+    "Create the Standard cage with a Twist layer":
+        "트위스트 레이어로 표준형 케이지 생성",
+    "Create the Standard cage with a Taper layer":
+        "테이퍼 레이어로 표준형 케이지 생성",
+    "Create the Standard cage with a Stretch layer":
+        "스트레치 레이어로 표준형 케이지 생성",
+    "Create the Standard cage with a Shear layer":
+        "전단 레이어로 표준형 케이지 생성",
+    "Create every Standard chain stage with a Bend layer":
+        "각 표준형 체인 단계를 벤드 레이어로 초기화",
+    "Create every Standard chain stage with a Twist layer":
+        "각 표준형 체인 단계를 트위스트 레이어로 초기화",
+    "Create every Standard chain stage with a Taper layer":
+        "각 표준형 체인 단계를 테이퍼 레이어로 초기화",
+    "Create every Standard chain stage with a Stretch layer":
+        "각 표준형 체인 단계를 스트레치 레이어로 초기화",
+    "Create every Standard chain stage with a Shear layer":
+        "각 표준형 체인 단계를 전단 레이어로 초기화",
+}
+translations_dict.update(_STANDARD_INITIAL_DEFORM_ZH)
+translations_ja_JP.update(_STANDARD_INITIAL_DEFORM_JA)
+translations_ko_KR.update(_STANDARD_INITIAL_DEFORM_KO)
+translations_en_US.update({
+    source: source for source in _STANDARD_INITIAL_DEFORM_ZH
+})
+
+
+_CREATE_CAGE_UI_ZH = {
+    "Create Cage": "创建笼",
+    "Standard": "标准型",
+    "Standard Chain": "标准型链式",
+    "Shear": "斜切型",
+    "Shear Chain": "斜切型链式",
+    "FFD": "FFD型",
+    "FFD Chain": "FFD型链式",
+    "Curve": "曲线型",
+    "Simple Deform (Legacy)": "简易形变（传统）",
+}
+_CREATE_CAGE_UI_JA = {
+    "Create Cage": "ケージを作成",
+    "Standard": "標準型",
+    "Standard Chain": "標準型チェーン",
+    "Shear": "シアー型",
+    "Shear Chain": "シアー型チェーン",
+    "FFD": "FFD型",
+    "FFD Chain": "FFD型チェーン",
+    "Curve": "カーブ型",
+    "Simple Deform (Legacy)": "Simple Deform（従来）",
+}
+_CREATE_CAGE_UI_KO = {
+    "Create Cage": "케이지 만들기",
+    "Standard": "표준형",
+    "Standard Chain": "표준형 체인",
+    "Shear": "전단형",
+    "Shear Chain": "전단형 체인",
+    "FFD": "FFD형",
+    "FFD Chain": "FFD형 체인",
+    "Curve": "커브형",
+    "Simple Deform (Legacy)": "Simple Deform(레거시)",
+}
+translations_dict.update(_CREATE_CAGE_UI_ZH)
+translations_ja_JP.update(_CREATE_CAGE_UI_JA)
+translations_ko_KR.update(_CREATE_CAGE_UI_KO)
+translations_en_US.update({source: source for source in _CREATE_CAGE_UI_ZH})
+
+
 SimpleDeform_CN = TranslationHelper(
     "SimpleDeform_CN",
     {
@@ -4228,6 +4683,39 @@ SimpleDeform_CN = TranslationHelper(
         "en_US": translations_en_US,
     },
 )
+
+# Blender owns common labels such as "Top" in several translation contexts.
+# A dedicated cage-origin context prevents its built-in default-context entry
+# from masking the add-on's Korean enum translation at runtime.
+_CAGE_ORIGIN_TRANSLATION_CONTEXT = "SDH_Cage_Origin"
+_CAGE_ORIGIN_CONTEXT_SOURCES = (
+    "Origin",
+    "Starting pattern of the deformation",
+    "Deformation reference used by every cage in the chain",
+    "Bottom",
+    "Bottom (Recommended)",
+    "Start at the lower cage boundary",
+    "Reference the lower end of each cage",
+    "Center",
+    "Use signed distance from the cage center",
+    "Reference the center of each cage",
+    "Symmetric",
+    "Mirror the deformation profile across the center",
+    "Mirror the profile around each cage center",
+    "Top",
+    "Start at the upper cage boundary",
+    "Reference the upper end of each cage",
+)
+for _locale, _catalog in (
+        ("zh_HANS", translations_dict),
+        ("ja_JP", translations_ja_JP),
+        ("ko_KR", translations_ko_KR),
+        ("en_US", translations_en_US)):
+    _registered_catalog = SimpleDeform_CN.translations_dict[_locale]
+    for _source in _CAGE_ORIGIN_CONTEXT_SOURCES:
+        if _source in _catalog:
+            _registered_catalog[
+                (_CAGE_ORIGIN_TRANSLATION_CONTEXT, _source)] = _catalog[_source]
 
 
 def register():

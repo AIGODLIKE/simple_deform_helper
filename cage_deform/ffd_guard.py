@@ -1,4 +1,8 @@
-"""Pure FFD cage safety checks used by interactive and native editing."""
+"""Pure FFD cage safety checks used by interactive and native editing.
+
+Interactive checks are limited to the cells touched by the current edit,
+so the guard remains responsive up to the supported 8x8x8 resolution.
+"""
 from __future__ import annotations
 
 import math

@@ -374,8 +374,14 @@ class Draw3D(DrawHandler):
                     rail_positions, rail_colors, rail_segments,
                     wire, wire_indices, (*rgb, preview_alpha))
                 continue
+            try:
+                preview_key = ("PREVIEW", int(stage_controller.as_pointer()))
+            except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                    ValueError):
+                preview_key = ("PREVIEW", id(stage_controller))
             wire_local = cage_preview_wire_vertices(
-                properties, steps=steps, ring_positions=ring_positions)
+                properties, steps=steps, ring_positions=ring_positions,
+                throttle_key=preview_key)
             wire = self.matrix_calculation(matrix, wire_local)
             extend_geometry(
                 rail_positions, rail_colors, rail_segments,
@@ -496,9 +502,14 @@ class Draw3D(DrawHandler):
             self.draw_smooth_3d_shader(
                 wire, wire_indices, (0.0, 0.72, 1.0, cage_alpha))
         else:
+            try:
+                active_key = ("ACTIVE_WIRE", int(controller.as_pointer()))
+            except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                    ValueError):
+                active_key = ("ACTIVE_WIRE", id(controller))
             wire_local = cage_preview_wire_vertices(
                 properties, steps=steps, ring_positions=ring_positions,
-                preview_state=preview_state)
+                preview_state=preview_state, throttle_key=active_key)
             rail_indices, ring_indices = cage_preview_wire_indices(
                 steps=steps, ring_positions=ring_positions)
             wire = self.matrix_calculation(matrix, wire_local)

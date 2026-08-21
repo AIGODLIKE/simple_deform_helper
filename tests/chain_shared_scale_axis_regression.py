@@ -49,14 +49,13 @@ def preview_corner(deform, target, controller, side, x_sign, z_sign):
     properties = controller.sdh_cage_deform
     half = Vector(properties.size) * 0.5
     preview_state = deform.gizmos.cage_preview_geometry_state(properties)
-    local = deform.deform_point_from_properties(
+    local = deform.core.deform_point_for_display(
         (
             x_sign * half.x,
             half.y if side == "TOP" else -half.y,
             z_sign * half.z,
         ),
         properties,
-        chain_preview=True,
         preview_output_frame=preview_state[1],
     )
     return deform.cage_local_matrix(target, controller) @ Vector(local)
