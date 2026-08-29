@@ -4108,6 +4108,47 @@ translations_ja_JP.update(_CHAIN_REORDER_UI_JA)
 translations_ko_KR.update(_CHAIN_REORDER_UI_KO)
 
 
+_VIEW_DISPLAY_ZH = {
+    "Cage": "笼体",
+    "Gizmos": "操控器",
+    "Guides": "辅助线/标注",
+    "Reset SDH View": "恢复当前视图默认",
+    "Toggle Simple Deform View Display": "切换简易形变当前视图显示",
+    "Reset Simple Deform View Display": "恢复简易形变当前视图显示",
+    "Display": "显示",
+    "Toggle cage preview in this view": "切换当前视图中的笼体预览",
+    "Toggle SDH Gizmos in this view": "切换当前视图中的 SDH 操控器",
+    "Toggle guide geometry in this view": "切换当前视图中的辅助线和标注",
+}
+_VIEW_DISPLAY_JA = {
+    "Cage": "ケージ",
+    "Gizmos": "ギズモ",
+    "Guides": "ガイド/注釈",
+    "Reset SDH View": "現在のビューを既定に戻す",
+    "Toggle Simple Deform View Display": "現在のビューの Simple Deform 表示を切替",
+    "Reset Simple Deform View Display": "現在のビューの Simple Deform 表示をリセット",
+    "Display": "表示",
+    "Toggle cage preview in this view": "このビューのケージプレビューを切替",
+    "Toggle SDH Gizmos in this view": "このビューの SDH ギズモを切替",
+    "Toggle guide geometry in this view": "このビューのガイドと注釈を切替",
+}
+_VIEW_DISPLAY_KO = {
+    "Cage": "케이지",
+    "Gizmos": "기즈모",
+    "Guides": "가이드/주석",
+    "Reset SDH View": "현재 뷰 기본값 복원",
+    "Toggle Simple Deform View Display": "현재 뷰의 Simple Deform 표시 전환",
+    "Reset Simple Deform View Display": "현재 뷰의 Simple Deform 표시 초기화",
+    "Display": "표시",
+    "Toggle cage preview in this view": "이 뷰의 케이지 미리보기 전환",
+    "Toggle SDH Gizmos in this view": "이 뷰의 SDH 기즈모 전환",
+    "Toggle guide geometry in this view": "이 뷰의 가이드와 주석 전환",
+}
+translations_dict.update(_VIEW_DISPLAY_ZH)
+translations_ja_JP.update(_VIEW_DISPLAY_JA)
+translations_ko_KR.update(_VIEW_DISPLAY_KO)
+
+
 translations_en_US = {source: source for source in translations_dict}
 
 

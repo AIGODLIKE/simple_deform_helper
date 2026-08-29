@@ -10,7 +10,11 @@ from bpy.types import Gizmo, GizmoGroup
 from mathutils import Euler, Matrix, Vector
 
 from ..stages import _object_fallback_bounds
-from ..utils import GizmoUtils, get_pref
+from ..utils import (
+    GizmoUtils,
+    get_pref,
+    viewport_cage_gizmos_enabled,
+)
 from . import core as _core_module
 from . import undo as _undo
 from .ffd_batch import draw_ffd_line_face_batches
@@ -4824,6 +4828,8 @@ class SDHCageDeformGizmoGroup(GizmoGroup):
 
     @classmethod
     def poll(cls, context):
+        if not viewport_cage_gizmos_enabled(context):
+            return False
         target, modifier, controller = resolve_context_deform(
             context, fallback=False)
         if target is None or modifier is None or controller is None:
@@ -4960,6 +4966,22 @@ class SDHCageDeformGizmoGroup(GizmoGroup):
     def draw_prepare(self, context):
         other_stage_handle_bundles = getattr(
             self, "other_stage_handle_bundles", ())
+        if not viewport_cage_gizmos_enabled(context):
+            for handle in (
+                    *getattr(self, "parameter_handles", ()),
+                    *getattr(self, "ffd_handles", ()),
+                    getattr(self, "direction_handle", None),
+                    getattr(self, "top_handle", None),
+                    getattr(self, "bottom_handle", None),
+                    getattr(self, "top_boundary_handle", None),
+                    getattr(self, "bottom_boundary_handle", None),
+                    *getattr(self, "bend_trend_handles", ()),
+                    *getattr(self, "axis_handles", ())):
+                if handle is not None:
+                    handle.hide = True
+            for bundle in other_stage_handle_bundles:
+                _hide_other_stage_bundle(bundle)
+            return
         target, modifier, controller = resolve_context_deform(
             context, fallback=False)
         if target is None or modifier is None or controller is None:
@@ -5169,6 +5191,8 @@ class SDHCageStagePickerGizmoGroup(GizmoGroup):
 
     @classmethod
     def poll(cls, context):
+        if not viewport_cage_gizmos_enabled(context):
+            return False
         target, active_modifier, active_controller = resolve_context_deform(
             context, fallback=False)
         if target is None or active_modifier is None or active_controller is None:
@@ -5206,6 +5230,10 @@ class SDHCageStagePickerGizmoGroup(GizmoGroup):
             self.pickers.append(picker)
 
     def draw_prepare(self, context):
+        if not viewport_cage_gizmos_enabled(context):
+            for picker in getattr(self, "pickers", ()):
+                picker.hide = True
+            return
         target, active_modifier, active_controller = resolve_context_deform(
             context, fallback=False)
         if target is None or active_modifier is None or active_controller is None:

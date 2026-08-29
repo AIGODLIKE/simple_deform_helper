@@ -144,6 +144,41 @@ if registered_here:
 merge_module = importlib.import_module(f"{PACKAGE}.cage_deform.merge")
 core_module = importlib.import_module(f"{PACKAGE}.cage_deform.core")
 
+
+def direct_multi_object_add_selects_merge():
+    """A direct multi-object cage add must leave the merge user-visible."""
+    first = cube_source("Direct Cage Merge First", (-2.0, 5.0, 0.0))
+    second = cube_source("Direct Cage Merge Second", (2.0, 5.0, 0.0))
+    activate_many((first, second), first)
+    result = bpy.ops.sdh.add_cage_deform(cage_type="STANDARD")
+    check(result == {"FINISHED"},
+          f"direct multi-object cage add failed: {result!r}")
+    merge = bpy.context.object
+    check(merge_module.is_deform_merge(merge),
+          "direct cage add did not leave the merge active")
+    check(merge.select_get(), "direct cage add left the merge unselected")
+    modifiers = core_module.cage_modifiers(merge)
+    check(len(modifiers) == 1,
+          f"direct cage add created {len(modifiers)} cage stages")
+    controller = core_module.find_controller(merge, modifiers[0])
+    check(controller is not None and controller.select_get(),
+          "direct cage add did not keep its controller selected")
+    selected = tuple(bpy.context.selected_objects)
+    check(merge in selected and controller in selected,
+          "target/controller selection was not synchronized")
+    merge_name = merge.name
+    controller_name = controller.name
+    check(merge_module.release_deform_merge(bpy.context, merge),
+          "direct cage merge cleanup failed")
+    for obj in (first, second):
+        if obj.name in bpy.data.objects:
+            bpy.data.objects.remove(obj, do_unlink=True)
+    return merge_name, controller_name
+
+
+case("direct_multi_object_add_selects_merge",
+     direct_multi_object_add_selects_merge)
+
 mesh_source = cube_source("Merge Cube", (-2.0, 0.0, 0.0))
 curve = curve_source("Merge Curve", (2.0, 0.0, 0.0))
 activate_many((mesh_source, curve), mesh_source)

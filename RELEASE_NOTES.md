@@ -1,4 +1,17 @@
-# Simple Deform Helper 2.7.50
+# Simple Deform Helper 2.7.51
+
+## Per-View Display and Multi-Object Cage Selection
+
+- Added independent `Cage`, `Gizmos`, and `Guides` switches to the Blender
+  Overlay popover, scoped to each 3D View and resettable without changing the
+  saved blend file or global preferences.
+- Kept cage previews, auxiliary guide geometry, FFD/Curve controls, and SDH
+  Gizmos consistent with the active view's display state.
+- Made direct multi-object cage creation leave the generated merged mesh
+  active and selected, while selecting its related cage controllers so the
+  new cage is immediately visible and its animation controls remain available.
+- Added regression coverage for per-view display isolation, real 3D View
+  toggles, all supported multi-object cage types, and merge selection cleanup.
 
 ## Responsive Chained Cage Scaling and Creation UI
 

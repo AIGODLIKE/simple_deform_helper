@@ -18,7 +18,12 @@ from bpy.props import (
 from bpy.types import Gizmo, GizmoGroup, Operator, PropertyGroup, UIList
 from mathutils import Matrix, Vector
 
-from ..utils import move_object_to_control_collection, set_helper_object_visible
+from ..utils import (
+    move_object_to_control_collection,
+    set_helper_object_visible,
+    viewport_cage_guides_enabled,
+    viewport_cage_gizmos_enabled,
+)
 from . import undo as _undo
 from .viewport import draw_gizmo_custom_shape as draw_cage_custom_shape
 
@@ -2865,6 +2870,8 @@ class SDHCurveControlGizmoGroup(GizmoGroup):
 
     @classmethod
     def poll(cls, context):
+        if not viewport_cage_gizmos_enabled(context):
+            return False
         target, modifier, controller = _core().resolve_context_deform(
             context, fallback=False)
         if target is None:
@@ -2891,6 +2898,10 @@ class SDHCurveControlGizmoGroup(GizmoGroup):
         self.control_handles = tuple(handles)
 
     def draw_prepare(self, context):
+        if not viewport_cage_gizmos_enabled(context):
+            for handle in getattr(self, "control_handles", ()):
+                handle.hide = True
+            return
         target, modifier, controller = _core().resolve_context_deform(
             context, fallback=False)
         if target is None:
@@ -3616,6 +3627,8 @@ class SDH_OT_edit_curve_cage_object(Operator):
     def _draw_box(self):
         state = str(getattr(self, "_state", ""))
         if state not in {"DRAGGING", "TRANSFORM"}:
+            return
+        if not viewport_cage_guides_enabled(bpy.context):
             return
         try:
             import gpu

@@ -5,7 +5,11 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector, Matrix
 
-from .utils import GizmoUtils
+from .utils import (
+    GizmoUtils,
+    viewport_cage_guides_enabled,
+    viewport_cage_overlay_enabled,
+)
 from .stages import StageCache
 
 
@@ -260,7 +264,11 @@ class Draw3D(DrawHandler):
 
     def draw_post_view(self):
         try:
-            if self.draw_poll:
+            # Blender's native Overlay toggle is per SpaceView3D.  Respect it
+            # before doing any expensive cage/preview evaluation, and keep the
+            # add-on switch independent from controller.show_cage.
+            if (viewport_cage_overlay_enabled(bpy.context) and
+                    self.draw_poll):
                 self._shader_set_prop_()
                 self.draw_3d(bpy.context)
         except (ReferenceError, RuntimeError, AttributeError, TypeError, ValueError) as exc:
@@ -278,7 +286,8 @@ class Draw3D(DrawHandler):
             return
         if not self.modifier_origin_is_available:
             self.draw_bound_box()
-        elif self.simple_deform_show_gizmo_poll(context):
+        elif (self.simple_deform_show_gizmo_poll(context) and
+              viewport_cage_guides_enabled(context)):
             # draw bound box
             self.draw_other_stage_bounds()
             self.draw_bound_box()
@@ -418,6 +427,7 @@ class Draw3D(DrawHandler):
         if not target or not modifier or not controller:
             return False
         properties = controller.sdh_cage_deform
+        guides_enabled = viewport_cage_guides_enabled(context)
         enabled_types = _cage_deform_types(properties)
         if not properties.show_cage:
             # ``Show Cage`` controls the active editing preview.  Keep the
@@ -489,7 +499,7 @@ class Draw3D(DrawHandler):
             effective_local, _effective_indices = ffd_wire_geometry(
                 properties, effective=True)
             effective_wire = self.matrix_calculation(matrix, effective_local)
-            if any(
+            if guides_enabled and any(
                     (Vector(authored) - Vector(effective)).length > 1.0e-7
                     for authored, effective in zip(wire, effective_wire)
             ):
@@ -537,7 +547,7 @@ class Draw3D(DrawHandler):
         # Curve effect limits are not a second cage.  Draw only their two cap
         # loops, in the same top/bottom colors as the boundary handles.  The
         # stable full-source cage remains blue and its rails are sampled once.
-        if effect_caps:
+        if effect_caps and guides_enabled:
             gpu.state.line_width_set(2.5)
             for factor, color in effect_caps:
                 cap_local = cage_preview_ring_vertices(
@@ -562,7 +572,7 @@ class Draw3D(DrawHandler):
             self._shader_set_prop_()
             return True
 
-        if properties.show_boundary_handles:
+        if properties.show_boundary_handles and guides_enabled:
             for side, color in (
                     ("TOP", (1.0, 0.82, 0.05, boundary_alpha)),
                     ("BOTTOM", (1.0, 0.55, 0.02, boundary_alpha))):
@@ -570,6 +580,10 @@ class Draw3D(DrawHandler):
                 connector = self.matrix_calculation(matrix, (boundary, handle))
                 self.draw_smooth_3d_shader(
                     connector, ((0, 1),), color)
+
+        if not guides_enabled:
+            self._shader_set_prop_()
+            return True
 
         rail_offsets = []
         if not enabled_types or enabled_types & {"BEND", "STRETCH"}:

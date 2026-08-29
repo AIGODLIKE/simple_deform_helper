@@ -7,6 +7,7 @@ from . import (
     msgbus,
     translate,
     preferences,
+    view_state,
     cage_deform,
 )
 
@@ -21,6 +22,7 @@ module_tuple = (
     translate,
     preferences,
     props,
+    view_state,
     cage_deform,
     ops,
     update,

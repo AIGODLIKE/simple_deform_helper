@@ -99,6 +99,7 @@ from ..utils import (
     move_object_to_control_collection,
     remove_unused_control_collections,
     set_helper_object_visible,
+    viewport_cage_guides_enabled,
 )
 
 
@@ -13520,6 +13521,16 @@ class SDH_OT_add_cage_deform(Operator):
             return {"CANCELLED"}
         _activate_created_cage_stage(
             context, target, controller, self.cage_type)
+        if merge_target is not None:
+            # Standard/Shear creation temporarily activates the Empty
+            # controller so its handles can be initialized.  For a direct
+            # multi-object add, the merged mesh is the user-facing object and
+            # must finish active; keep every related controller selected so
+            # Timeline/Gizmo state remains available without hiding the cage.
+            _activate(context, merge_target)
+            _sync_target_cage_selection(context, merge_target)
+            refresh_controller_display(context, force=True)
+            _selection_sync_notify()
         self.report({"INFO"}, iface_({
             "SHEAR": "Added Shear Cage stage",
             "FFD": "Added FFD Cage stage",
@@ -15204,6 +15215,8 @@ class SDH_OT_box_select_ffd_points(Operator):
         except (ReferenceError, RuntimeError, TypeError):
             return
         if state not in {"DRAGGING", "TRANSFORM"}:
+            return
+        if not viewport_cage_guides_enabled(bpy.context):
             return
         try:
             import gpu

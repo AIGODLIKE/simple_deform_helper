@@ -16,6 +16,36 @@ from .stages import StageCache, hide_runtime_object, render_job_running
 _LOGGER = logging.getLogger(__name__)
 
 
+def viewport_cage_overlay_enabled(context=None):
+    """Return the current 3D View's SDH cage-overlay state."""
+    try:
+        from .view_state import viewport_cage_overlay_enabled as predicate
+        return bool(predicate(context))
+    except (ImportError, AttributeError, ReferenceError, RuntimeError,
+            TypeError, ValueError):
+        return True
+
+
+def viewport_cage_guides_enabled(context=None):
+    """Return the current 3D View's SDH auxiliary-guide state."""
+    try:
+        from .view_state import viewport_cage_guides_enabled as predicate
+        return bool(predicate(context))
+    except (ImportError, AttributeError, ReferenceError, RuntimeError,
+            TypeError, ValueError):
+        return True
+
+
+def viewport_cage_gizmos_enabled(context=None):
+    """Return the current 3D View's SDH per-view Gizmo state."""
+    try:
+        from .view_state import viewport_cage_gizmos_enabled as predicate
+        return bool(predicate(context))
+    except (ImportError, AttributeError, ReferenceError, RuntimeError,
+            TypeError, ValueError):
+        return True
+
+
 CONTROL_COLLECTION_NAME = "Simple Deform Controls"
 CONTROL_COLLECTION_MARKER = "_simple_deform_helper_controls"
 
@@ -258,6 +288,8 @@ class PublicPoll(PublicClass):
             return False
         pref = get_pref()
         if pref is None or not pref.show_gizmo:
+            return False
+        if not viewport_cage_gizmos_enabled(context):
             return False
         show_gizmo = space.show_gizmo if space.type == "VIEW_3D" else True
         is_simple = cls.poll_modifier_type_is_simple(context)
@@ -1201,13 +1233,15 @@ class GizmoUtils(GizmoUpdate):
             gpu.state.depth_test_set("NONE")
 
     def draw(self, context):
-        if self.modifier_origin_is_available:
+        if (viewport_cage_gizmos_enabled(context) and
+                self.modifier_origin_is_available):
             self.draw_interactive_custom_shape(
                 self.custom_shape[self.draw_type])
             self.__update_matrix_func(context)
 
     def draw_select(self, context, select_id):
-        if self.modifier_origin_is_available:
+        if (viewport_cage_gizmos_enabled(context) and
+                self.modifier_origin_is_available):
             self.draw_interactive_custom_shape(
                 self.custom_shape[self.draw_type], select_id=select_id)
             self.__update_matrix_func(context)
