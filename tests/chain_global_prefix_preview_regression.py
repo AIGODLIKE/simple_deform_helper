@@ -124,12 +124,11 @@ for stage_index, (stage, stage_controller) in enumerate(
     domain = deform.core._chain_domain_input_values(stage_controller, stage)
     if not bool(domain.get("Chain Global Prefix Active", False)):
         raise AssertionError(f"stage {stage_index} did not use global prefix")
-    required_mask = (
-        deform.core.DEFORM_BITS["TWIST"] |
-        deform.core.DEFORM_BITS["BEND"]
-    )
-    if int(domain.get("Chain Global Prefix Types", 0)) & required_mask != required_mask:
-        raise AssertionError(f"stage {stage_index} lost Twist/Bend prefix mask")
+    prefix_mask = int(domain.get("Chain Global Prefix Types", 0))
+    if not prefix_mask & deform.core.DEFORM_BITS["TWIST"]:
+        raise AssertionError(f"stage {stage_index} lost the pre-Bend Twist prefix")
+    if prefix_mask & deform.core.DEFORM_BITS["BEND"]:
+        raise AssertionError(f"stage {stage_index} froze composable Bend in the prefix")
     socket_twist_error = max(
         socket_twist_error,
         abs(float(deform.modifier_input(stage, "Twist Angle"))),

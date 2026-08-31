@@ -122,6 +122,17 @@ RUNTIME_EVALUATOR = "_sdh_cage_deform_runtime_evaluator"
 CONTROLLER_ACTIVE_DISPLAY = "_sdh_cage_active_display"
 AUTHORED_TOP_SCALE = "_sdh_cage_authored_top_scale"
 AUTHORED_BOTTOM_SCALE = "_sdh_cage_authored_bottom_scale"
+# A subdivided chain keeps the original per-stage profile beside the mutable
+# authored values.  The global profile remains the immutable source baseline;
+# local GN end sockets carry only the correction from that baseline.
+CHAIN_PROFILE_BASELINE_TOP_SCALE = (
+    "_sdh_cage_chain_profile_baseline_top_scale")
+CHAIN_PROFILE_BASELINE_BOTTOM_SCALE = (
+    "_sdh_cage_chain_profile_baseline_bottom_scale")
+CHAIN_PROFILE_BASELINE_TOP_OFFSET = (
+    "_sdh_cage_chain_profile_baseline_top_offset")
+CHAIN_PROFILE_BASELINE_BOTTOM_OFFSET = (
+    "_sdh_cage_chain_profile_baseline_bottom_offset")
 _LEGACY_CHAIN_CORRECTION_PREFIX = "SDH_CHAIN_CORRECTION_"
 
 # POST_PIXEL handlers outlive an operator instance when an extension is
@@ -839,6 +850,9 @@ _CHAIN_AUTO_GUARD = set()
 # dedicated guard so neither controller recursively edits the other.
 _CHAIN_SHARED_SCALE_GUARD = set()
 _CHAIN_GLOBAL_STRETCH_GUARD = set()
+# Re-authoring a frozen global Bend/Twist prefix rewrites every stage in the
+# chain, so the stages it touches must not re-enter their own update callback.
+_CHAIN_GLOBAL_PREFIX_GUARD = set()
 _CHAIN_RECONNECTING = set()
 _CHAIN_RECONNECT_QUEUE = {}
 _CHAIN_AFFINE_FRAME_CACHE = {}
@@ -2174,11 +2188,37 @@ def _load_packaged_node_group():
 
 
 def ensure_node_group():
-    node_group = (
+    named_group = (
         bpy.data.node_groups.get(GROUP_RUNTIME_NAME) or
         bpy.data.node_groups.get(GROUP_NAME))
-    if node_group is None:
-        node_group = _load_packaged_node_group()
+    node_group = next((
+        candidate for candidate in bpy.data.node_groups
+        if (
+            candidate.bl_idname == "GeometryNodeTree" and
+            int(candidate.get(GROUP_MARKER, 0)) == GROUP_VERSION and
+            not bool(candidate.get(MODIFIER_MARKER, False)) and
+            candidate.name.startswith(GROUP_RUNTIME_NAME)
+        )
+    ), None) or named_group
+    # A saved file can still contain the previous schema's runtime template.
+    # Loading the packaged graph is cheap and keeps that stale data-block from
+    # forcing a full Python rebuild on the first new cage after an upgrade.
+    if (
+            node_group is None or
+            node_group.bl_idname != "GeometryNodeTree" or
+            int(node_group.get(GROUP_MARKER, 0)) != GROUP_VERSION
+    ):
+        packaged = _load_packaged_node_group()
+        if packaged is not None:
+            if (
+                    node_group is not None and
+                    getattr(node_group, "users", 0) == 0
+            ):
+                try:
+                    bpy.data.node_groups.remove(node_group)
+                except (ReferenceError, RuntimeError, TypeError):
+                    pass
+            node_group = packaged
     if node_group is None or node_group.bl_idname != "GeometryNodeTree":
         node_group = bpy.data.node_groups.new(
             GROUP_RUNTIME_NAME, "GeometryNodeTree")
@@ -2224,7 +2264,8 @@ def deform_point_from_properties(
         ignore_chain_stage_profile=False, chain_frames_override=None,
         chain_domain_values_override=None,
         evaluator_end_scales_override=None,
-        chain_stage_index_override=None):
+        chain_stage_index_override=None,
+        suppress_global_profile=False):
     """Evaluate a point from controller state.
 
     Standalone cages and subdivided global-profile previews use authored end
@@ -2314,13 +2355,22 @@ def deform_point_from_properties(
                 source_end - (source_start + stage_length), 0.0)
         except (AttributeError, TypeError, ValueError, RuntimeError):
             resolved_profile_gap_distance = 0.0
+    evaluator_profile = None
     if evaluator or (
             chain_preview and is_chained and not global_profile_active
     ):
         if evaluator_end_scales_override is None:
-            top_scale, bottom_scale = evaluator_end_scales(properties)
+            if evaluator and global_profile_active:
+                evaluator_profile = evaluator_end_profile(
+                    properties, controller, modifier, include_relative=True)
+                top_scale, bottom_scale = evaluator_profile[:2]
+            else:
+                top_scale, bottom_scale = evaluator_end_scales(properties)
         else:
             top_scale, bottom_scale = evaluator_end_scales_override
+            if evaluator and global_profile_active:
+                evaluator_profile = evaluator_end_profile(
+                    properties, controller, modifier, include_relative=True)
     if global_stretch_active:
         # Stretch is represented by the single root-frame pass at the chain
         # tip.  Keep the Python reference and viewport frame sampler aligned
@@ -2407,7 +2457,8 @@ def deform_point_from_properties(
                 length=domain_values.get("Chain Global Prefix Length", 2.0),
                 origin=domain_values.get(
                     "Chain Global Prefix Origin", ORIGIN_VALUES["BOTTOM"]),
-                profile_active=global_profile_active,
+                profile_active=(
+                    global_profile_active and not suppress_global_profile),
                 bottom_scale=domain_values.get(
                     "Chain Global Profile Bottom Scale", (1.0, 1.0, 1.0)),
                 top_scale=domain_values.get(
@@ -2429,13 +2480,17 @@ def deform_point_from_properties(
     # root frame. Do not apply the visible per-stage values a second time to
     # evaluated geometry. Linked previews already receive the upstream affine
     # frame and therefore use the same relative scales as the evaluator.
-    effective_top_offset = tuple(properties.top_offset)
-    effective_bottom_offset = tuple(properties.bottom_offset)
+    if evaluator_profile is not None:
+        effective_top_offset = tuple(evaluator_profile[2])
+        effective_bottom_offset = tuple(evaluator_profile[3])
+    else:
+        effective_top_offset = tuple(properties.top_offset)
+        effective_bottom_offset = tuple(properties.bottom_offset)
     ignore_local_end_scale = bool(
         evaluator and ignore_chain_stage_profile)
     ignore_global_profile = bool(
         evaluator and global_profile_active and
-        (ignore_chain_stage_profile or not chain_preview))
+        ignore_chain_stage_profile)
     if ignore_local_end_scale or ignore_global_profile:
         top_scale = (1.0, 1.0)
         bottom_scale = (1.0, 1.0)
@@ -2549,6 +2604,42 @@ def chain_global_prefix_preview_state(properties):
                 bool(domain.get("Chain Global Profile Active", False))
         ):
             return None
+        # Subdivision can retain a Prefix mask as a compatibility baseline
+        # even when every captured value is zero.  That path is a geometric
+        # no-op in GN; routing the viewport through its original source-offset
+        # reconstruction would nevertheless use the pre-split frame after a
+        # boundary drag.  Fall back to the ordinary chain preview in this
+        # case so the displayed boundary follows the live cage size/frame.
+        if (
+                bool(domain.get("Chain Global Prefix Active", False)) and
+                not bool(domain.get("Chain Global Profile Active", False))
+        ):
+            prefix_mask = int(domain.get("Chain Global Prefix Types", 0) or 0)
+            prefix_values = (
+                (DEFORM_BITS["BEND"], domain.get(
+                    "Chain Global Prefix Bend", 0.0)),
+                (DEFORM_BITS["TWIST"], domain.get(
+                    "Chain Global Prefix Twist", 0.0)),
+                (DEFORM_BITS["TAPER"], domain.get(
+                    "Chain Global Prefix Taper", 0.0)),
+                (DEFORM_BITS["STRETCH"], domain.get(
+                    "Chain Global Prefix Stretch", 0.0)),
+                (DEFORM_BITS["SHEAR"], domain.get(
+                    "Chain Global Prefix Shear", (0.0, 0.0, 0.0))),
+            )
+            has_prefix_effect = False
+            for bit, value in prefix_values:
+                if not prefix_mask & bit:
+                    continue
+                try:
+                    components = tuple(float(component) for component in value)
+                except (TypeError, ValueError, OverflowError):
+                    components = (float(value),)
+                if any(abs(component) > EPSILON for component in components):
+                    has_prefix_effect = True
+                    break
+            if not has_prefix_effect:
+                return None
 
         from . import chain as chain_module
 
@@ -2571,6 +2662,10 @@ def chain_global_prefix_preview_state(properties):
             float(values.get("Chain Source Start", 0.0))
             for values in domains)
         half_y = max(abs(float(properties.size[1])) * 0.5, EPSILON)
+        root_half_y = max(
+            abs(float(controllers[0].sdh_cage_deform.size[1])) * 0.5,
+            EPSILON,
+        )
         center = Vector(domain.get(
             "Chain Global Prefix Center", (0.0, 0.0, 0.0)))
         rotation = tuple(float(value) for value in domain.get(
@@ -2617,12 +2712,13 @@ def chain_global_prefix_preview_state(properties):
             return value
 
         signature = (
-            "SDH_CHAIN_GLOBAL_PREFIX_PREVIEW_V1",
+            "SDH_CHAIN_GLOBAL_PREFIX_PREVIEW_V2",
             stage_index,
             tuple(
                 tuple(float(value).hex() for row in matrix for value in row)
                 for matrix in matrices),
             tuple(value.hex() for value in source_starts),
+            float(root_half_y).hex(),
             tuple(
                 tuple(
                     (key, signature_value(values.get(key)))
@@ -2640,6 +2736,7 @@ def chain_global_prefix_preview_state(properties):
             "source_offset": float(domain.get(
                 "Chain Global Prefix Source Offset", 0.0)),
             "half_y": half_y,
+            "root_half_y": root_half_y,
             "prefix_matrix": prefix_matrix,
             "target_to_current": inverses[stage_index],
             "current_controller": controllers[stage_index],
@@ -2665,12 +2762,18 @@ def _deform_point_with_chain_global_prefix_preview(
         float(state["source_start"]) + float(source_point.y) +
         float(state["half_y"])
     )
+    # Rebuild the source point in the *current* root cage frame.  The global
+    # Prefix node receives the live target-space position and applies its
+    # source offset itself.  Reconstructing downstream points from the old
+    # Prefix offset/frame loses the translation introduced when a root
+    # boundary is resized, which makes every later cage preview drift.
+    root_half_y = max(float(state.get("root_half_y", EPSILON)), EPSILON)
     source_local = Vector((
         source_point.x,
-        source_coordinate + float(state["source_offset"]),
+        source_coordinate - float(state["source_starts"][0]) - root_half_y,
         source_point.z,
     ))
-    target_point = state["prefix_matrix"] @ source_local
+    target_point = state["matrices"][0] @ source_local
     current_controller = state["current_controller"]
     for index, (stage, controller, matrix, inverse, source_start) in enumerate(
             zip(
@@ -2818,6 +2921,146 @@ def sync_chain_global_stretch_from_stage(controller, value):
         # Preview state and shared-value reads use the cached chain-domain
         # payload. The sockets above are live immediately, so invalidate the
         # matching metadata cache without scheduling a full reconnect.
+        invalidate_chain_domain_cache()
+        target.update_tag()
+        _tag_view3d_redraw()
+    return True
+
+
+_CHAIN_PREFIX_BASELINE_OPS = {
+    "BEND": ("CHAIN_GLOBAL_PREFIX_BEND", "CHAIN_PREFIX_BASE_BEND",
+             "bend_strength", "Bend Angle", "Chain Global Prefix Bend"),
+    "TWIST": ("CHAIN_GLOBAL_PREFIX_TWIST", "CHAIN_PREFIX_BASE_TWIST",
+              "twist_strength", "Twist Angle", "Chain Global Prefix Twist"),
+}
+
+
+def sync_chain_global_prefix_from_stage(controller, operation, value):
+    """Re-author a frozen chain-global Bend/Twist pass in place.
+
+    ``subdivide_cage_to_chain`` freezes a mixed stack as one analytic global
+    prefix plus a per-stage baseline, and a later edit only survived as a
+    first-order residue layered on the original pass.  Twist and Bend do not
+    commute, so that residue cancels exactly at the authored angle and drifts
+    into visible distortion everywhere else.  Rewrite the prefix and every
+    stage baseline together so the residue stays zero and the chain keeps
+    evaluating the exact composition it was subdivided from.  The value is a
+    whole-chain quantity split by stage length, so it is shared like global
+    Stretch rather than edited per stage.
+    """
+    if controller is None or not is_cage_controller(controller):
+        return False
+    spec = _CHAIN_PREFIX_BASELINE_OPS.get(str(operation))
+    bit = DEFORM_BITS.get(str(operation), 0)
+    if spec is None or not bit:
+        return False
+    (prefix_attribute, base_attribute, stage_attribute, socket,
+     prefix_socket) = spec
+    target = find_target(controller)
+    modifier = find_modifier(target, controller)
+    if target is None or modifier is None:
+        return False
+    try:
+        edited_value = float(value)
+        if not math.isfinite(edited_value):
+            return False
+        domain = _chain_domain_input_values(controller, modifier)
+        if not bool(domain.get("Chain Global Prefix Active", False)):
+            return False
+        prefix_mask = int(domain.get("Chain Global Prefix Types", 0))
+        baseline_mask = int(
+            domain.get("Chain Global Baseline Types", prefix_mask))
+        if not (prefix_mask & bit and baseline_mask & bit):
+            return False
+        from . import chain as chain_module
+        prefix_key = getattr(chain_module, prefix_attribute)
+        base_key = getattr(chain_module, base_attribute)
+        chain_uuid = chain_module.stage_chain_uuid(modifier)
+        stages = chain_module.chain_stages(target, chain_uuid)
+        if not chain_uuid or len(stages) < 2:
+            return False
+        entries = []
+        for stage in stages:
+            stage_controller = find_controller(target, stage)
+            if stage_controller is None:
+                return False
+            entries.append((
+                stage, stage_controller,
+                abs(float(stage_controller.sdh_cage_deform.size[1]))))
+    except (ImportError, AttributeError, ReferenceError, RuntimeError,
+            TypeError, ValueError, OverflowError):
+        return False
+
+    span_total = sum(span for _stage, _owner, span in entries)
+    edited_pointer = _pointer(controller)
+    share = next((
+        span / span_total for _stage, stage_controller, span in entries
+        if _pointer(stage_controller) == edited_pointer), 0.0
+    ) if span_total > EPSILON else 0.0
+    if share <= EPSILON:
+        return False
+    chain_total = edited_value / share
+
+    changed = False
+    for stage, stage_controller, span in entries:
+        stage_value = chain_total * (span / span_total)
+        for owner in (
+                getattr(stage, "node_group", None), stage, stage_controller):
+            if owner is None:
+                continue
+            for key, key_value in (
+                    (prefix_key, chain_total), (base_key, stage_value)):
+                try:
+                    previous = owner.get(key, None)
+                    if previous is None or abs(
+                            float(previous) - key_value) > EPSILON:
+                        owner[key] = float(key_value)
+                        changed = True
+                except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                        ValueError, OverflowError):
+                    continue
+
+        properties = getattr(stage_controller, "sdh_cage_deform", None)
+        stage_pointer = _pointer(stage_controller)
+        if properties is not None and stage_pointer:
+            _CHAIN_GLOBAL_PREFIX_GUARD.add(stage_pointer)
+            try:
+                if abs(float(getattr(
+                        properties, stage_attribute)) - stage_value) > EPSILON:
+                    setattr(properties, stage_attribute, stage_value)
+                    changed = True
+                if (
+                        str(properties.deform_type) == str(operation) and
+                        abs(float(properties.strength) - stage_value) > EPSILON
+                ):
+                    properties.strength = stage_value
+                    changed = True
+            finally:
+                _CHAIN_GLOBAL_PREFIX_GUARD.discard(stage_pointer)
+
+        # Every stage evaluates the same whole-chain prefix pass, and the
+        # baseline now equals the stage value, so the local residue this
+        # socket carries is zero for every stage.
+        for socket_name, socket_value in (
+                (prefix_socket, chain_total),
+                (socket, 0.0), ("Strength", stage_value)):
+            if socket_name == "Strength" and (
+                    properties is None or
+                    str(properties.deform_type) != str(operation)):
+                continue
+            if modifier_input_identifier(stage, socket_name) is None:
+                continue
+            old = modifier_input(stage, socket_name)
+            try:
+                differs = old is None or abs(
+                    float(old) - socket_value) > EPSILON
+            except (TypeError, ValueError, OverflowError):
+                differs = True
+            if differs:
+                set_modifier_input(stage, socket_name, socket_value)
+                changed = True
+
+    if changed:
         invalidate_chain_domain_cache()
         target.update_tag()
         _tag_view3d_redraw()
@@ -3249,15 +3492,19 @@ def deform_point_for_display(
             chain_display_state=display_state,
         )
         if chained_result is not None:
-            return Vector(chained_result)
-        result = Vector(deform_point_from_properties(
-            source_point,
-            properties,
-            chain_preview=True,
-            preview_output_frame=preview_output_frame,
-            ffd_offsets_override=ffd_offsets_override,
-            curve_deformer_override=curve_deformer_override,
-        ))
+            # This is the chain result before operations owned by the single
+            # source-frame suffix pass. Keep going so global Stretch and
+            # post-Bend Twist/Taper/Shear are applied below.
+            result = Vector(chained_result)
+        else:
+            result = Vector(deform_point_from_properties(
+                source_point,
+                properties,
+                chain_preview=True,
+                preview_output_frame=preview_output_frame,
+                ffd_offsets_override=ffd_offsets_override,
+                curve_deformer_override=curve_deformer_override,
+            ))
     state = chain_stretch_state
     if state is _CHAIN_STRETCH_PREVIEW_UNSET:
         state = chain_global_stretch_preview_state(properties)
@@ -3605,7 +3852,7 @@ def _raw_chain_deform(
         point, properties, *, profile_after_end=False,
         profile_gap_distance=0.0, chain_source_coordinate=None,
         chain_source_start=None, chain_output_frame=None,
-        operation_order_override=None):
+        operation_order_override=None, suppress_global_profile=False):
     return Vector(deform_point_from_properties(
         point, properties, evaluator=True, chain_eligible=True,
         apply_chain_input_offset=False,
@@ -3617,7 +3864,8 @@ def _raw_chain_deform(
         chain_source_coordinate=chain_source_coordinate,
         chain_source_start=chain_source_start,
         operation_order_override=operation_order_override,
-        ignore_chain_stage_profile=True))
+        ignore_chain_stage_profile=True,
+        suppress_global_profile=suppress_global_profile))
 
 
 def _chain_input_tuple(affine, half_y):
@@ -3850,6 +4098,16 @@ def chain_conjugation_frames_for_controller(
         output_affines = [Matrix.Identity(4)] * (stage_index + 1)
         output_affines[0] = chain_root_output_affine(
             controllers[0], stages[0])
+        # A chain-global end profile is a per-point decoration on the rigid
+        # arc skeleton: the root pass scales/offsets every cross-section in
+        # source coordinates, and the authored Bend acts on that decorated
+        # geometry directly.  Seam frames must describe only the skeleton -
+        # sampling them through the profile would bake the section scale into
+        # the conjugation (Bend is not linear in its radial offset) and bake
+        # the section offset into the pivot (displacing the arc axis).
+        profile_skeleton_frames = bool(_chain_domain_input_values(
+            controllers[0], stages[0],
+        ).get("Chain Global Profile Active", False))
 
         def frame_sample_fraction(_item):
             """Sample above float32 noise without crossing cage curvature."""
@@ -3902,6 +4160,7 @@ def chain_conjugation_frames_for_controller(
                         chain_output_frame=_chain_output_tuple(
                             output_affines[prior]),
                         operation_order_override=stage_orders[prior],
+                        suppress_global_profile=profile_skeleton_frames,
                     )
                     result = matrices[prior] @ deformed
                 return inverses[current] @ result
@@ -4431,6 +4690,143 @@ def _chain_domain_input_values(controller, modifier):
                 (DEFORM_BITS["TWIST"] | DEFORM_BITS["TAPER"] |
                  DEFORM_BITS["STRETCH"])
             )
+
+        # The global prefix/suffix plan is captured when a chain is split,
+        # while the layer collection remains editable afterwards.  Older
+        # files could therefore keep a removed operation in the plan (for
+        # example TWIST in a chain whose RNA now contains only BEND).  The
+        # current stage layer set is authoritative: stale plan bits must not
+        # re-enable an operation that was deleted from the stage.
+        try:
+            # Downstream stages intentionally mute locally-applied Stretch
+            # while the chain executes one shared global Stretch pass.  Use
+            # the present layer set here, rather than the active (unmuted)
+            # set, so that compatibility cleanup does not disable that pass.
+            present_mask = deform_type_mask(
+                set(controller.sdh_cage_deform.deform_types), None)
+        except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                ValueError):
+            present_mask = deform_type_mask(("BEND",), None)
+        raw_global_values = {
+            "CHAIN_GLOBAL_STRETCH_ACTIVE": global_stretch_active,
+            "CHAIN_GLOBAL_STRETCH_FACTOR": global_stretch_factor,
+            "CHAIN_GLOBAL_PREFIX_ACTIVE": global_prefix_active,
+            "CHAIN_GLOBAL_PREFIX_MASK": global_prefix_mask,
+            "CHAIN_GLOBAL_BASELINE_MASK": global_baseline_mask,
+            "CHAIN_GLOBAL_PREFIX_PRE_SHEAR_MASK": (
+                global_prefix_pre_shear_mask),
+            "CHAIN_GLOBAL_PREFIX_POST_SHEAR_MASK": (
+                global_prefix_post_shear_mask),
+            "CHAIN_GLOBAL_PREFIX_BEND": global_prefix_bend,
+            "CHAIN_GLOBAL_PREFIX_DIRECTION": global_prefix_direction,
+            "CHAIN_GLOBAL_PREFIX_TWIST": global_prefix_twist,
+            "CHAIN_GLOBAL_PREFIX_TAPER": global_prefix_taper,
+            "CHAIN_GLOBAL_PREFIX_STRETCH": global_prefix_stretch,
+            "CHAIN_GLOBAL_SUFFIX_ACTIVE": global_suffix_active,
+            "CHAIN_GLOBAL_SUFFIX_MASK": global_suffix_mask,
+            "CHAIN_GLOBAL_SUFFIX_PRE_SHEAR_MASK": (
+                global_suffix_pre_shear_mask),
+            "CHAIN_GLOBAL_SUFFIX_POST_SHEAR_MASK": (
+                global_suffix_post_shear_mask),
+            "CHAIN_GLOBAL_SUFFIX_TWIST": global_suffix_twist,
+            "CHAIN_GLOBAL_SUFFIX_TAPER": global_suffix_taper,
+            "CHAIN_GLOBAL_PREFIX_SHEAR": global_prefix_shear,
+            "CHAIN_GLOBAL_SUFFIX_SHEAR": global_suffix_shear,
+            "CHAIN_PREFIX_BASE_BEND": prefix_base_bend,
+            "CHAIN_PREFIX_BASE_TWIST": prefix_base_twist,
+            "CHAIN_PREFIX_BASE_TAPER": prefix_base_taper,
+            "CHAIN_PREFIX_BASE_STRETCH": prefix_base_stretch,
+            "CHAIN_PREFIX_BASE_SHEAR": prefix_base_shear,
+        }
+
+        global_stretch_active = bool(
+            global_stretch_active and
+            present_mask & DEFORM_BITS["STRETCH"])
+        global_prefix_mask &= present_mask
+        global_baseline_mask &= present_mask
+        global_prefix_pre_shear_mask &= present_mask
+        global_prefix_post_shear_mask &= present_mask
+        global_suffix_mask &= present_mask
+        global_suffix_pre_shear_mask &= present_mask
+        global_suffix_post_shear_mask &= present_mask
+        if not global_prefix_mask & DEFORM_BITS["BEND"]:
+            global_prefix_bend = 0.0
+            global_prefix_direction = 0.0
+        if not global_prefix_mask & DEFORM_BITS["TWIST"]:
+            global_prefix_twist = 0.0
+        if not global_prefix_mask & DEFORM_BITS["TAPER"]:
+            global_prefix_taper = 0.0
+        if not global_prefix_mask & DEFORM_BITS["STRETCH"]:
+            global_prefix_stretch = 0.0
+        if not global_prefix_mask & DEFORM_BITS["SHEAR"]:
+            global_prefix_shear = (0.0, 0.0, 0.0)
+        if not global_suffix_mask & DEFORM_BITS["TWIST"]:
+            global_suffix_twist = 0.0
+        if not global_suffix_mask & DEFORM_BITS["TAPER"]:
+            global_suffix_taper = 0.0
+        if not global_suffix_mask & DEFORM_BITS["SHEAR"]:
+            global_suffix_shear = (0.0, 0.0, 0.0)
+        if not global_baseline_mask & DEFORM_BITS["BEND"]:
+            prefix_base_bend = 0.0
+        if not global_baseline_mask & DEFORM_BITS["TWIST"]:
+            prefix_base_twist = 0.0
+        if not global_baseline_mask & DEFORM_BITS["TAPER"]:
+            prefix_base_taper = 0.0
+        if not global_baseline_mask & DEFORM_BITS["STRETCH"]:
+            prefix_base_stretch = 0.0
+        if not global_baseline_mask & DEFORM_BITS["SHEAR"]:
+            prefix_base_shear = (0.0, 0.0, 0.0)
+        if not global_stretch_active:
+            global_stretch_factor = 0.0
+        if not global_prefix_mask and not global_profile_active:
+            global_prefix_active = False
+        if not global_suffix_mask:
+            global_suffix_active = False
+
+        sanitized_global_values = {
+            "CHAIN_GLOBAL_STRETCH_ACTIVE": global_stretch_active,
+            "CHAIN_GLOBAL_STRETCH_FACTOR": global_stretch_factor,
+            "CHAIN_GLOBAL_PREFIX_ACTIVE": global_prefix_active,
+            "CHAIN_GLOBAL_PREFIX_MASK": global_prefix_mask,
+            "CHAIN_GLOBAL_BASELINE_MASK": global_baseline_mask,
+            "CHAIN_GLOBAL_PREFIX_PRE_SHEAR_MASK": (
+                global_prefix_pre_shear_mask),
+            "CHAIN_GLOBAL_PREFIX_POST_SHEAR_MASK": (
+                global_prefix_post_shear_mask),
+            "CHAIN_GLOBAL_PREFIX_BEND": global_prefix_bend,
+            "CHAIN_GLOBAL_PREFIX_DIRECTION": global_prefix_direction,
+            "CHAIN_GLOBAL_PREFIX_TWIST": global_prefix_twist,
+            "CHAIN_GLOBAL_PREFIX_TAPER": global_prefix_taper,
+            "CHAIN_GLOBAL_PREFIX_STRETCH": global_prefix_stretch,
+            "CHAIN_GLOBAL_SUFFIX_ACTIVE": global_suffix_active,
+            "CHAIN_GLOBAL_SUFFIX_MASK": global_suffix_mask,
+            "CHAIN_GLOBAL_SUFFIX_PRE_SHEAR_MASK": (
+                global_suffix_pre_shear_mask),
+            "CHAIN_GLOBAL_SUFFIX_POST_SHEAR_MASK": (
+                global_suffix_post_shear_mask),
+            "CHAIN_GLOBAL_SUFFIX_TWIST": global_suffix_twist,
+            "CHAIN_GLOBAL_SUFFIX_TAPER": global_suffix_taper,
+            "CHAIN_GLOBAL_PREFIX_SHEAR": global_prefix_shear,
+            "CHAIN_GLOBAL_SUFFIX_SHEAR": global_suffix_shear,
+            "CHAIN_PREFIX_BASE_BEND": prefix_base_bend,
+            "CHAIN_PREFIX_BASE_TWIST": prefix_base_twist,
+            "CHAIN_PREFIX_BASE_TAPER": prefix_base_taper,
+            "CHAIN_PREFIX_BASE_STRETCH": prefix_base_stretch,
+            "CHAIN_PREFIX_BASE_SHEAR": prefix_base_shear,
+        }
+        changed_global_values = {
+            key: value for key, value in sanitized_global_values.items()
+            if raw_global_values.get(key) != value
+        }
+        if changed_global_values:
+            for attribute, value in changed_global_values.items():
+                key = getattr(chain_module, attribute)
+                for owner in owners:
+                    try:
+                        owner[key] = value
+                    except (AttributeError, ReferenceError, RuntimeError,
+                            TypeError, ValueError):
+                        pass
     except (AttributeError, ImportError, ReferenceError, RuntimeError, TypeError, ValueError):
         pass
     try:
@@ -4585,6 +4981,263 @@ def _store_authored_end_scales(modifier, properties):
     return changed
 
 
+def _finite_end_offset(value):
+    """Return a finite two-axis end offset for profile composition."""
+    try:
+        values = tuple(float(component) for component in value)
+    except (TypeError, ValueError, OverflowError):
+        values = ()
+    if len(values) != 2:
+        return (0.0, 0.0)
+    return tuple(component if math.isfinite(component) else 0.0
+                 for component in values)
+
+
+def _profile_affine_compose(first, second):
+    """Compose two per-axis profile affines (``first`` after ``second``)."""
+    first_scale, first_offset = first
+    second_scale, second_offset = second
+    return (
+        tuple(a * b for a, b in zip(first_scale, second_scale)),
+        tuple(a * b + c for a, b, c in zip(
+            first_scale, second_offset, first_offset)),
+    )
+
+
+def _profile_affine_inverse(value):
+    """Return the finite inverse of one per-axis profile affine."""
+    scale, offset = value
+    inverse_scale = tuple(
+        1.0 / max(float(component), 0.05) for component in scale)
+    return (
+        inverse_scale,
+        tuple(-component * inverse for component, inverse in
+              zip(offset, inverse_scale)),
+    )
+
+
+def _profile_affine_identity():
+    return ((1.0, 1.0), (0.0, 0.0))
+
+
+def _chain_profile_baseline_values(modifier):
+    """Read the immutable profile captured when a chain was subdivided."""
+    group = getattr(modifier, "node_group", None)
+    if group is None:
+        return None
+
+    def read(key, fallback):
+        try:
+            value = tuple(float(component) for component in group.get(key, ()))
+        except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                ValueError):
+            return None
+        if len(value) != 2 or not all(math.isfinite(component)
+                                      for component in value):
+            return None
+        return value
+
+    top_scale = read(CHAIN_PROFILE_BASELINE_TOP_SCALE, None)
+    bottom_scale = read(CHAIN_PROFILE_BASELINE_BOTTOM_SCALE, None)
+    top_offset = read(CHAIN_PROFILE_BASELINE_TOP_OFFSET, None)
+    bottom_offset = read(CHAIN_PROFILE_BASELINE_BOTTOM_OFFSET, None)
+    if any(value is None for value in (
+            top_scale, bottom_scale, top_offset, bottom_offset)):
+        return None
+    return (
+        _finite_end_scale(top_scale),
+        _finite_end_scale(bottom_scale),
+        _finite_end_offset(top_offset),
+        _finite_end_offset(bottom_offset),
+    )
+
+
+def _set_chain_profile_baseline(modifier, controller=None, *,
+                                top_scale=(1.0, 1.0),
+                                bottom_scale=(1.0, 1.0),
+                                top_offset=(0.0, 0.0),
+                                bottom_offset=(0.0, 0.0)):
+    """Persist one stage's original absolute profile on stable ID owners."""
+    if modifier is None:
+        return False
+    values = {
+        CHAIN_PROFILE_BASELINE_TOP_SCALE: _finite_end_scale(top_scale),
+        CHAIN_PROFILE_BASELINE_BOTTOM_SCALE: _finite_end_scale(bottom_scale),
+        CHAIN_PROFILE_BASELINE_TOP_OFFSET: _finite_end_offset(top_offset),
+        CHAIN_PROFILE_BASELINE_BOTTOM_OFFSET: _finite_end_offset(
+            bottom_offset),
+    }
+    owners = tuple(owner for owner in (
+        getattr(modifier, "node_group", None), controller) if owner is not None)
+    changed = False
+    for owner in owners:
+        for key, value in values.items():
+            serialized = list(value)
+            try:
+                old = tuple(float(component) for component in owner.get(key, ()))
+            except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                    ValueError):
+                old = ()
+            if len(old) == 2 and all(
+                    abs(a - b) <= EPSILON for a, b in zip(old, value)):
+                continue
+            try:
+                owner[key] = serialized
+                changed = True
+            except (AttributeError, KeyError, ReferenceError, RuntimeError,
+                    TypeError, ValueError):
+                pass
+    return changed
+
+
+def _ensure_chain_profile_baseline(modifier, controller, properties):
+    """Initialize old chain files without overwriting an existing baseline."""
+    stored = _chain_profile_baseline_values(modifier)
+    if stored is not None:
+        return stored
+    _set_chain_profile_baseline(
+        modifier,
+        controller,
+        top_scale=getattr(properties, "top_scale", (1.0, 1.0)),
+        bottom_scale=getattr(properties, "bottom_scale", (1.0, 1.0)),
+        top_offset=getattr(properties, "top_offset", (0.0, 0.0)),
+        bottom_offset=getattr(properties, "bottom_offset", (0.0, 0.0)),
+    )
+    return _chain_profile_baseline_values(modifier) or (
+        _finite_end_scale(getattr(properties, "top_scale", (1.0, 1.0))),
+        _finite_end_scale(getattr(properties, "bottom_scale", (1.0, 1.0))),
+        _finite_end_offset(getattr(properties, "top_offset", (0.0, 0.0))),
+        _finite_end_offset(getattr(properties, "bottom_offset", (0.0, 0.0))),
+    )
+
+
+def _chain_profile_corrections(properties, controller, modifier):
+    """Return local end-profile corrections for one global-profile stage.
+
+    The global profile is evaluated once in the root frame.  Every local
+    stage then receives an affine correction whose seam is relative to the
+    currently incoming authored profile, so an edit cannot be multiplied by
+    the old global baseline or leak through an unrelated stage.
+    """
+    authored = (
+        _finite_end_scale(getattr(properties, "top_scale", (1.0, 1.0))),
+        _finite_end_scale(getattr(properties, "bottom_scale", (1.0, 1.0))),
+        _finite_end_offset(getattr(properties, "top_offset", (0.0, 0.0))),
+        _finite_end_offset(getattr(properties, "bottom_offset", (0.0, 0.0))),
+    )
+    identity = _profile_affine_identity()
+    if controller is None or modifier is None:
+        return (*authored[:2], authored[2], authored[3], False)
+    try:
+        from . import chain as chain_module
+        target = find_target(controller)
+        chain_uuid = chain_module.stage_chain_uuid(modifier)
+        stages = tuple(chain_module.chain_stages(target, chain_uuid))
+        stage_index = stages.index(modifier)
+    except (ImportError, AttributeError, IndexError, ReferenceError,
+            RuntimeError, TypeError, ValueError):
+        return (*authored[:2], authored[2], authored[3], False)
+    if not stages:
+        return (*authored[:2], authored[2], authored[3], False)
+
+    try:
+        domains = tuple(
+            _chain_domain_input_values(
+                find_controller(target, stage), stage)
+            for stage in stages)
+        if not any(bool(domain.get("Chain Global Profile Active", False))
+                   for domain in domains):
+            return (*authored[:2], authored[2], authored[3], False)
+    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+        return (*authored[:2], authored[2], authored[3], False)
+
+    records = []
+    controllers = []
+    for stage in stages:
+        stage_controller = find_controller(target, stage)
+        stage_properties = getattr(stage_controller, "sdh_cage_deform", None)
+        if stage_controller is None or stage_properties is None:
+            return (*authored[:2], authored[2], authored[3], False)
+        controllers.append(stage_controller)
+        records.append(_ensure_chain_profile_baseline(
+            stage, stage_controller, stage_properties))
+
+    corrections = []
+    incoming = (
+        (records[0][1], records[0][3])
+        if bool(getattr(controllers[0].sdh_cage_deform,
+                       "stage_enabled", True)) else identity
+    )
+    for index, (stage_controller, baseline) in enumerate(
+            zip(controllers, records)):
+        stage_properties = stage_controller.sdh_cage_deform
+        enabled = bool(getattr(stage_properties, "stage_enabled", True))
+        if not enabled:
+            corrections.append((identity, identity))
+            continue
+        desired = (
+            (_finite_end_scale(stage_properties.top_scale),
+             _finite_end_offset(stage_properties.top_offset)),
+            (_finite_end_scale(stage_properties.bottom_scale),
+             _finite_end_offset(stage_properties.bottom_offset)),
+        )
+        desired_top, desired_bottom = desired
+        baseline_top = (baseline[0], baseline[2])
+        baseline_bottom = (baseline[1], baseline[3])
+        bottom_correction = _profile_affine_compose(
+            desired_bottom, _profile_affine_inverse(incoming))
+        baseline_relative = _profile_affine_compose(
+            baseline_top, _profile_affine_inverse(baseline_bottom))
+        desired_relative = _profile_affine_compose(
+            desired_top, _profile_affine_inverse(desired_bottom))
+        relative_correction = _profile_affine_compose(
+            desired_relative, _profile_affine_inverse(baseline_relative))
+        top_correction = _profile_affine_compose(
+            relative_correction, bottom_correction)
+        corrections.append((top_correction, bottom_correction))
+        incoming = desired_top
+
+    top_correction, bottom_correction = corrections[stage_index]
+    return (
+        top_correction[0],
+        bottom_correction[0],
+        top_correction[1],
+        bottom_correction[1],
+        True,
+    )
+
+
+def evaluator_end_profile(properties, controller=None, modifier=None, *,
+                          include_relative=False):
+    """Return scale/offset inputs consumed by a stage evaluator."""
+    authored = (
+        _finite_end_scale(getattr(properties, "top_scale", (1.0, 1.0))),
+        _finite_end_scale(getattr(properties, "bottom_scale", (1.0, 1.0))),
+        _finite_end_offset(getattr(properties, "top_offset", (0.0, 0.0))),
+        _finite_end_offset(getattr(properties, "bottom_offset", (0.0, 0.0))),
+    )
+    if controller is None:
+        controller = getattr(properties, "id_data", None)
+    if is_cage_controller(controller):
+        target = find_target(controller)
+        if modifier is None:
+            modifier = find_modifier(target, controller)
+        try:
+            domain = _chain_domain_input_values(controller, modifier)
+            if bool(domain.get("Chain Global Profile Active", False)):
+                values = _chain_profile_corrections(
+                    properties, controller, modifier)
+                if include_relative:
+                    return values
+                return values[:4]
+        except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                ValueError):
+            pass
+    if include_relative:
+        return (*authored, False)
+    return authored
+
+
 def evaluator_end_scales(properties, controller=None, modifier=None, *,
                          include_relative=False):
     """Return Top/Bottom Scale values used by the actual stage evaluator.
@@ -4606,6 +5259,19 @@ def evaluator_end_scales(properties, controller=None, modifier=None, *,
 
     if controller is None:
         controller = getattr(properties, "id_data", None)
+    if is_cage_controller(controller):
+        target = find_target(controller)
+        if modifier is None:
+            modifier = find_modifier(target, controller)
+        try:
+            domain = _chain_domain_input_values(controller, modifier)
+            if bool(domain.get("Chain Global Profile Active", False)):
+                profile = _chain_profile_corrections(
+                    properties, controller, modifier)
+                return result(profile[0], profile[1], profile[4])
+        except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                ValueError):
+            pass
     if not is_cage_controller(controller):
         return result(authored_top, authored_bottom)
     target = find_target(controller)
@@ -4676,11 +5342,25 @@ def sync_end_scale_inputs(controller, modifier=None):
     if target is None or modifier is None or properties is None:
         return None
     try:
-        top_scale, bottom_scale = evaluator_end_scales(
-            properties, controller, modifier)
+        (
+            top_scale,
+            bottom_scale,
+            _derived_scales,
+        ) = evaluator_end_scales(
+            properties, controller, modifier, include_relative=True)
+        (
+            _profile_top_scale,
+            _profile_bottom_scale,
+            top_offset,
+            bottom_offset,
+            _derived_profile,
+        ) = evaluator_end_profile(properties, controller, modifier,
+                                   include_relative=True)
         values = {
             "Top Scale": (top_scale[0], 1.0, top_scale[1]),
             "Bottom Scale": (bottom_scale[0], 1.0, bottom_scale[1]),
+            "Top Offset": (top_offset[0], 0.0, top_offset[1]),
+            "Bottom Offset": (bottom_offset[0], 0.0, bottom_offset[1]),
         }
         changed = _store_authored_end_scales(modifier, properties)
         for name, value in values.items():
@@ -5321,6 +6001,7 @@ def clear_chain_reconnect_state():
     _CHAIN_AUTO_GUARD.clear()
     _CHAIN_SHARED_SCALE_GUARD.clear()
     _CHAIN_GLOBAL_STRETCH_GUARD.clear()
+    _CHAIN_GLOBAL_PREFIX_GUARD.clear()
     _CHAIN_MODE_GUARD.clear()
     _CURVE_PRESET_UPDATE_GUARD.clear()
     _SYNCING.clear()
@@ -5634,7 +6315,8 @@ def _property_update_guarded(properties):
     controller = getattr(properties, "id_data", None)
     pointer = _pointer(controller) if is_cage_controller(controller) else 0
     return pointer, bool(pointer and (
-        pointer in _SYNCING or pointer in _CHAIN_GLOBAL_STRETCH_GUARD
+        pointer in _SYNCING or pointer in _CHAIN_GLOBAL_STRETCH_GUARD or
+        pointer in _CHAIN_GLOBAL_PREFIX_GUARD
     ))
 
 
@@ -5720,6 +6402,10 @@ def set_deform_layers(properties, order, context=None):
         if pointer:
             _SYNCING.discard(pointer)
     _mirror_primary_to_legacy(properties, pointer)
+    # The cached chain-domain record may still contain the plan captured
+    # before this structural edit. Force the next sync to decode the new
+    # layer mask and clear any removed global operation.
+    invalidate_chain_domain_cache()
     _controller_update(properties, context)
     return True
 
@@ -5953,6 +6639,7 @@ def _deform_types_update(properties, context):
     if int(getattr(properties, "active_deform_layer", 0)) != active_index:
         properties.active_deform_layer = active_index
     _mirror_primary_to_legacy(properties, pointer)
+    invalidate_chain_domain_cache()
     _controller_update(properties, context)
 
 
@@ -6076,6 +6763,7 @@ def _muted_deform_types_update(properties, context):
         finally:
             if pointer:
                 _SYNCING.discard(pointer)
+    invalidate_chain_domain_cache()
     _controller_update(properties, context)
 
 
@@ -6095,6 +6783,7 @@ def _deform_order_update(properties, context):
             if pointer:
                 _SYNCING.discard(pointer)
     _mirror_primary_to_legacy(properties, pointer)
+    invalidate_chain_domain_cache()
     _controller_update(properties, context)
 
 
@@ -6112,6 +6801,12 @@ def _legacy_strength_update(properties, context):
     finally:
         if pointer:
             _SYNCING.discard(pointer)
+    operation = str(properties.deform_type)
+    spec = _CHAIN_PREFIX_BASELINE_OPS.get(operation)
+    if spec is not None and sync_chain_global_prefix_from_stage(
+            getattr(properties, "id_data", None), operation,
+            getattr(properties, spec[2], 0.0)):
+        return
     _controller_update(properties, context)
 
 
@@ -6160,6 +6855,28 @@ def _independent_parameter_update(properties, context):
         return
     _mirror_primary_to_legacy(properties, pointer)
     _controller_update(properties, context)
+
+
+def _prefix_baseline_parameter_update(properties, context, operation):
+    """Update Bend/Twist, re-authoring a frozen global prefix when one owns it."""
+    pointer, guarded = _property_update_guarded(properties)
+    if guarded:
+        return
+    _mirror_primary_to_legacy(properties, pointer)
+    spec = _CHAIN_PREFIX_BASELINE_OPS.get(operation)
+    if spec is not None and sync_chain_global_prefix_from_stage(
+            getattr(properties, "id_data", None), operation,
+            getattr(properties, spec[2], 0.0)):
+        return
+    _controller_update(properties, context)
+
+
+def _bend_strength_update(properties, context):
+    _prefix_baseline_parameter_update(properties, context, "BEND")
+
+
+def _twist_strength_update(properties, context):
+    _prefix_baseline_parameter_update(properties, context, "TWIST")
 
 
 def _curve_settings_update(properties, context):
@@ -9247,7 +9964,7 @@ class SDHCageControllerProperties(PropertyGroup):
         default=math.radians(45.0),
         soft_min=-math.tau,
         soft_max=math.tau,
-        update=_independent_parameter_update,
+        update=_bend_strength_update,
     )
     bend_direction: FloatProperty(
         name="Bend Direction",
@@ -9265,7 +9982,7 @@ class SDHCageControllerProperties(PropertyGroup):
         default=math.radians(45.0),
         soft_min=-math.tau,
         soft_max=math.tau,
-        update=_independent_parameter_update,
+        update=_twist_strength_update,
     )
     taper_factor: FloatProperty(
         name="Taper Factor",
@@ -10418,9 +11135,14 @@ def sync_controller(
         (
             evaluator_top_scale,
             evaluator_bottom_scale,
-            derived_end_scales,
-        ) = evaluator_end_scales(
+            evaluator_top_offset,
+            evaluator_bottom_offset,
+            derived_end_profile,
+        ) = evaluator_end_profile(
             properties, controller, modifier, include_relative=True)
+        evaluator_top_scale, evaluator_bottom_scale, derived_end_scales = evaluator_end_scales(
+            properties, controller, modifier, include_relative=True)
+        derived_end_profile = bool(derived_end_profile)
         desired_encoded = encode_deform_order(
             desired_order, properties.deform_types, properties.deform_type)
         if tuple(properties.deform_order) != desired_encoded:
@@ -10585,9 +11307,9 @@ def sync_controller(
             "Bottom Scale": (
                 evaluator_bottom_scale[0], 1.0, evaluator_bottom_scale[1]),
             "Top Offset": (
-                properties.top_offset[0], 0.0, properties.top_offset[1]),
+                evaluator_top_offset[0], 0.0, evaluator_top_offset[1]),
             "Bottom Offset": (
-                properties.bottom_offset[0], 0.0, properties.bottom_offset[1]),
+                evaluator_bottom_offset[0], 0.0, evaluator_bottom_offset[1]),
             "Chain Global Stretch Active": domain_values.get(
                 "Chain Global Stretch Active", False),
             "Chain Global Stretch Factor": domain_values.get(
@@ -10940,12 +11662,17 @@ def sync_controller(
             _set_if_changed(
                 "origin", origins.get(origin_value, properties.origin), "Origin")
             _set_if_changed("preserve_volume", preserve, "Preserve Volume")
-            if derived_end_scales:
+            if derived_end_scales or derived_end_profile:
                 # These inputs are a managed relative representation of the
-                # absolute controller values.  Never pull them back into RNA,
-                # or every timer tick would turn the authored seam into 1 and
-                # reintroduce the cumulative scale on the next push.
-                for name in ("Top Scale", "Bottom Scale"):
+                # absolute controller profile.  Never pull them back into RNA,
+                # or every timer tick would turn the authored seam into an
+                # identity and reintroduce cumulative scale/offset on push.
+                managed_names = (
+                    ("Top Scale", "Bottom Scale") if derived_end_scales else
+                    ()) + (
+                        ("Top Offset", "Bottom Offset")
+                        if derived_end_profile else ())
+                for name in managed_names:
                     expected = param_values[name]
                     old = modifier_input(modifier, name)
                     if _different(old, expected):
@@ -10966,13 +11693,13 @@ def sync_controller(
                     if bottom_scale_changed:
                         pending_shared_scale_sync.append(
                             ("BOTTOM", tuple(properties.bottom_scale)))
-            _set_if_changed(
-                "top_offset", (float(top_offset[0]), float(top_offset[2])),
-                "Top Offset")
-            _set_if_changed(
-                "bottom_offset",
-                (float(bottom_offset[0]), float(bottom_offset[2])),
-                "Bottom Offset")
+                _set_if_changed(
+                    "top_offset", (float(top_offset[0]), float(top_offset[2])),
+                    "Top Offset")
+                _set_if_changed(
+                    "bottom_offset",
+                    (float(bottom_offset[0]), float(bottom_offset[2])),
+                    "Bottom Offset")
         else:
             for name, value in param_values.items():
                 old = modifier_input(modifier, name)
@@ -11224,10 +11951,92 @@ def upgrade_managed_stages():
             if node_group not in groups:
                 groups.append(node_group)
 
-    # Snapshot every modifier first.  Multiple object copies can temporarily
+    # Snapshot every modifier first. Multiple object copies can temporarily
     # share a stage group while retaining independent modifier input values.
-    for node_group in groups:
-        build_node_group(node_group)
+    # Reusing the packaged graph here is important on file load: rebuilding a
+    # large Geometry Nodes tree in Python once per stage makes migration scale
+    # linearly with the number of cages and blocks Blender's load handler.
+    replacements = {}
+    if groups:
+        # ``ensure_node_group`` loads the packaged template or, for a source
+        # checkout without the asset, builds one fallback graph. Either path is
+        # paid once for the complete migration and remains warm for new cages.
+        template = ensure_node_group()
+
+        def copy_group_metadata(source, destination):
+            """Keep persistence keys while taking graph data from template."""
+            excluded = {
+                GROUP_MARKER,
+                _INTERFACE_CACHE_TOKEN,
+                DEFORM_ORDER_SIGNATURE,
+                _LEGACY_CHAIN_CORRECTION_ATTRIBUTE,
+                _LEGACY_CHAIN_CORRECTION_ACTIVE,
+            }
+            try:
+                for key in tuple(source.keys()):
+                    if key in excluded:
+                        continue
+                    try:
+                        destination[key] = source[key]
+                    except (AttributeError, ReferenceError, RuntimeError,
+                            TypeError, ValueError):
+                        continue
+                destination[GROUP_MARKER] = GROUP_VERSION
+                destination[MODIFIER_MARKER] = True
+                if not destination.get(MODIFIER_UUID, ""):
+                    destination[MODIFIER_UUID] = str(uuid.uuid4())
+                signature = template.get(DEFORM_ORDER_SIGNATURE, "")
+                if signature:
+                    destination[DEFORM_ORDER_SIGNATURE] = signature
+            except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                    ValueError):
+                # The graph itself remains usable even if an unusual custom
+                # property from an external file cannot be copied.
+                try:
+                    destination[GROUP_MARKER] = GROUP_VERSION
+                    destination[MODIFIER_MARKER] = True
+                except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                    pass
+
+        def group_key(group):
+            try:
+                pointer = int(_pointer(group))
+                if pointer:
+                    return pointer
+            except (AttributeError, ReferenceError, RuntimeError, TypeError,
+                    ValueError):
+                pass
+            return id(group)
+
+        for old_group in groups:
+            replacement = template.copy()
+            old_name = str(getattr(old_group, "name", ""))
+            replacement.name = f"{STAGE_GROUP_NAME_PREFIX}{uuid.uuid4().hex[:8]}"
+            copy_group_metadata(old_group, replacement)
+            replacements[group_key(old_group)] = (
+                old_group, replacement, old_name)
+
+        for _target, modifier, old_group, _values, _viewport_enabled in records:
+            entry = replacements.get(group_key(old_group))
+            if entry is None:
+                continue
+            try:
+                modifier.node_group = entry[1]
+            except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                continue
+
+        for old_group, replacement, old_name in replacements.values():
+            try:
+                if old_group.users == 0 and old_group.get(MODIFIER_MARKER, False):
+                    bpy.data.node_groups.remove(old_group)
+                    if old_name:
+                        try:
+                            replacement.name = old_name
+                        except (AttributeError, ReferenceError, RuntimeError,
+                                TypeError, ValueError):
+                            pass
+            except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                pass
 
     reverse_types = {value: key for key, value in DEFORM_VALUES.items()}
     curve_lengths = {value: key for key, value in CURVE_LENGTH_VALUES.items()}

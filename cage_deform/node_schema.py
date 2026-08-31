@@ -5,10 +5,14 @@ from .deform_contract import DEFORM_ORDER
 
 
 GROUP_MARKER = "_sdh_cage_deform_group"
-# Version 42 adds the per-stage Influence Weight input (vertex-group aware).
+# Version 44 routes every chained Bend stage's profile through the authored
+# source coordinate (previously mixed stacks only), so per-stage arcs rebuild
+# the authored arc instead of compounding the upstream chord contraction.
 # The packaged template asset carries the same version, so first cage
 # creation loads it directly instead of running the Python graph builder.
-GROUP_VERSION = 42
+# Increment when the generated graph's evaluation wiring changes.  Existing
+# stage groups are rebuilt from the packaged template on the next registration.
+GROUP_VERSION = 44
 
 _LEGACY_CHAIN_CORRECTION_ATTRIBUTE = "_sdh_chain_correction_attribute"
 _LEGACY_CHAIN_CORRECTION_ACTIVE = "_sdh_chain_correction_active"

@@ -105,6 +105,12 @@ CHAIN_PREFIX_BASE_STRETCH = "_sdh_cage_chain_prefix_base_stretch"
 CHAIN_PREFIX_BASE_SHEAR = "_sdh_cage_chain_prefix_base_shear"
 CHAIN_VERSION_KEY = "_sdh_cage_chain_version"
 
+# Stacks whose non-Bend operations are known to survive evaluation in the
+# global prefix while Bend composes per stage.  FFD and Curve read their own
+# cage or guide geometry, so they stay on the frozen whole-stack prefix.
+COMPOSABLE_BEND_COMPANIONS = frozenset(
+    {"BEND", "TWIST", "TAPER", "STRETCH", "SHEAR"})
+
 # Compatibility aliases used by an early prototype.  Reading them lets an
 # existing file be upgraded without making the old spelling the source of
 # truth for newly-created chains.
@@ -584,9 +590,6 @@ def _release_composable_bend_baseline(target, chain_uuid):
         if prefix_mask != bend_mask or baseline_mask not in (0, bend_mask):
             return 0
         if bool(_stage_metadata_value(
-                stage, CHAIN_GLOBAL_PROFILE_ACTIVE, False)):
-            return 0
-        if bool(_stage_metadata_value(
                 stage, CHAIN_GLOBAL_STRETCH_ACTIVE, False)):
             return 0
         if bool(_stage_metadata_value(
@@ -604,7 +607,42 @@ def _release_composable_bend_baseline(target, chain_uuid):
         records.append((stage, controller))
     sync = getattr(_core(), "sync_controller", None)
     for stage, controller in records:
-        _set_global_prefix_mode(stage, controller, active=False)
+        # A chain-global end profile rides on the root pass alongside the
+        # prefix.  Releasing the Bend baseline must keep that profile: pass
+        # its persisted values back through the prefix writer instead of
+        # letting the writer reset them to identity.
+        profile_active = bool(_stage_metadata_value(
+            stage, CHAIN_GLOBAL_PROFILE_ACTIVE, False))
+        profile_arguments = {}
+        if profile_active:
+            def _pair(key, fallback):
+                values = tuple(_stage_metadata_value(stage, key, fallback))
+                return (
+                    (float(values[0]), float(values[2]))
+                    if len(values) >= 3 else
+                    (float(values[0]), float(values[1]))
+                )
+            profile_arguments = {
+                "profile_active": True,
+                "bottom_scale": _pair(
+                    CHAIN_GLOBAL_PROFILE_BOTTOM_SCALE, (1.0, 1.0, 1.0)),
+                "top_scale": _pair(
+                    CHAIN_GLOBAL_PROFILE_TOP_SCALE, (1.0, 1.0, 1.0)),
+                "bottom_offset": _pair(
+                    CHAIN_GLOBAL_PROFILE_BOTTOM_OFFSET, (0.0, 0.0, 0.0)),
+                "top_offset": _pair(
+                    CHAIN_GLOBAL_PROFILE_TOP_OFFSET, (0.0, 0.0, 0.0)),
+                "center": tuple(_stage_metadata_value(
+                    stage, CHAIN_GLOBAL_PREFIX_CENTER, (0.0, 0.0, 0.0))),
+                "rotation": tuple(_stage_metadata_value(
+                    stage, CHAIN_GLOBAL_PREFIX_ROTATION, (0.0, 0.0, 0.0))),
+                "source_offset": float(_stage_metadata_value(
+                    stage, CHAIN_GLOBAL_PREFIX_OFFSET, 0.0)),
+                "length": float(_stage_metadata_value(
+                    stage, CHAIN_GLOBAL_PREFIX_LENGTH, 2.0)),
+            }
+        _set_global_prefix_mode(
+            stage, controller, active=False, **profile_arguments)
         _set_global_suffix_mode(stage, controller, active=False)
         _set_source_frame_mode(stage, controller, False)
         if sync is not None:
@@ -4046,23 +4084,34 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
         shear_index = (
             source_order.index("SHEAR") if "SHEAR" in source_order else -1)
         primary_index = bend_index if bend_index >= 0 else shear_index
-        # A single Bottom-origin Bend splits into exact per-segment arcs:
-        # constant curvature composes, so plain chained shares reproduce the
-        # authored shape without any analytic baseline.  Skipping the global
-        # prefix here keeps later per-stage edits mathematically exact chain
-        # composition instead of first-order deltas on the baseline, which
-        # visibly distorted downstream segments after a middle-stage edit.
-        exactly_composable_bend = (
+        # A Bottom-origin Bend splits into exact per-segment arcs: constant
+        # curvature composes, so chained stages rebuild the authored arc with
+        # no analytic baseline, and each stage's Bend stays independently
+        # editable.  A pre-Bend Twist stays in the global prefix and its frame
+        # spin is countered per stage through the bend plane; pre-Bend Taper/
+        # Stretch/Shear scale or translate the cross-section instead, which
+        # per-segment arcs cannot absorb, so those stacks keep the frozen
+        # whole-stack prefix and give up per-stage Bend control.  A global end
+        # profile is compatible: it runs once in the source frame before any
+        # stage, and the arcs consume the scaled cross-section per point just
+        # like the authored cage does.
+        pre_bend_operations = (
+            set(source_order[:bend_index]) if bend_index >= 0 else set())
+        composable_bend = (
             not has_authored_gaps and
-            present_types == {"BEND"} and
+            "BEND" in present_types and
             source_origin == "BOTTOM" and
-            not global_profile_mode
+            present_types <= COMPOSABLE_BEND_COMPANIONS and
+            pre_bend_operations <= {"TWIST"}
         )
+        prefix_cut = (
+            bend_index if composable_bend and bend_index >= 0
+            else primary_index + 1)
         # With no Bend/Shear pivot, keep the complete linear stack in the
         # source frame.  The global baseline is still subtracted from each
         # stage, so later per-stage edits remain local deltas.
         global_prefix_order = (
-            source_order[:primary_index + 1]
+            source_order[:prefix_cut]
             if primary_index >= 0 else
             source_order if not has_authored_gaps else ())
         global_suffix_order = (
@@ -4070,10 +4119,17 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
             if primary_index >= 0 else ())
         global_prefix_operations = (
             bool(global_prefix_order) and
-            not has_authored_gaps and
-            not exactly_composable_bend)
+            not has_authored_gaps)
+        # Operations authored after Bend evaluate once at the chain tip in the
+        # source frame.  Composable Bend legitimately empties the prefix (the
+        # stages own the arc themselves), so the suffix must not be chained to
+        # the prefix switch - only to having suffix operations and no authored
+        # gaps.  Gating it on the prefix silently dropped every post-Bend
+        # operation whenever Bend was authored first.
         global_suffix_operations = (
-            bool(global_suffix_order) and global_prefix_operations)
+            bool(global_suffix_order) and
+            not has_authored_gaps and
+            (global_prefix_operations or composable_bend))
 
         def split_around_shear(order):
             order = tuple(order)
@@ -4094,7 +4150,7 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
             split_around_shear(global_suffix_order))
         subdivision_source_frame = (
             "BEND" in present_types and not global_prefix_operations and
-            not exactly_composable_bend)
+            not composable_bend)
         # Disjoint chain stages do not compose axial Stretch
         # multiplicatively: their physical lengths add.  Splitting the scale
         # with an Nth root therefore shortens every Stretch-only, Twist,
@@ -4120,10 +4176,16 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
             name for name in source_order
             if not (global_stretch_mode and name == "STRETCH")
         )
+        # Bend is baselined only when the global prefix owns it.  Under
+        # composable Bend the stages carry the arc themselves, so subtracting a
+        # frozen base_bend would reintroduce the stale first-order delta.  The
+        # baseline follows whichever global pass exists - prefix or suffix -
+        # because both need the local stages to hold zero residual.
         global_baseline_order = tuple(
             name for name in source_order
-            if global_prefix_operations and
-            not (global_stretch_mode and name == "STRETCH")
+            if (global_prefix_operations or global_suffix_operations) and
+            not (global_stretch_mode and name == "STRETCH") and
+            not (composable_bend and name == "BEND")
         )
         alignment_order = (
             source_order if global_prefix_operations else chain_stage_order)
@@ -4167,6 +4229,20 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
                 return position - 1.0
             if source_origin == "SYMMETRIC":
                 return abs(position - 0.5)
+            return position - 0.5
+
+        def signed_source_profile(position):
+            """Axial fraction from the deform pivot, keeping its sign.
+
+            ``source_profile`` folds SYMMETRIC to a magnitude because the local
+            profiles only need a distance.  A twist phase is signed, so the
+            bend plane needs the signed fraction instead.
+            """
+            position = min(max(float(position), 0.0), 1.0)
+            if source_origin == "BOTTOM":
+                return position
+            if source_origin == "TOP":
+                return position - 1.0
             return position - 0.5
 
         # With a non-zero gap, a stage does not own the whole equal-width
@@ -4216,6 +4292,8 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
 
         source_values = {
             "bend_strength": float(source_properties.bend_strength),
+            "bend_direction": float(
+                getattr(source_properties, "bend_direction", 0.0)),
             "twist_strength": float(source_properties.twist_strength),
             "taper_factor": taper_factor,
             "stretch_factor": float(source_properties.stretch_factor),
@@ -4336,6 +4414,20 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
                         stage_twist_strength = (
                             source_values["twist_strength"] *
                             stage_profile_delta)
+                        # A global pre-Bend twist spins each stage's local
+                        # frame, so a stage bending in its own X/Z plane would
+                        # tilt the arc out of the authored plane.  Counter-
+                        # rotate the plane by the twist accumulated below this
+                        # stage.  Only a twist authored before Bend (owned by
+                        # the global prefix) spins that frame; a post-Bend
+                        # twist runs once at the chain tip and a Bend-only
+                        # cage's twist property is a stale default.
+                        stage_bend_direction = (
+                            float(source_values["bend_direction"]) -
+                            (float(source_values["twist_strength"])
+                             if "TWIST" in global_prefix_order else 0.0) *
+                            signed_source_profile(
+                                stage_ranges[index][0] / total_length))
                         shear_slope = (
                             stage_profile_delta * total_length /
                             max(segment_length, EPSILON))
@@ -4396,6 +4488,7 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
                         properties.size = (
                             original_size[0], segment_length, original_size[2])
                         properties.bend_strength = stage_bend_strength
+                        properties.bend_direction = stage_bend_direction
                         properties.twist_strength = stage_twist_strength
                         properties.shear_factors = stage_shear_factors
                         q0 = (
@@ -4511,7 +4604,7 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
                             pre_shear_types=prefix_pre_shear_order,
                             post_shear_types=prefix_post_shear_order,
                             bend=source_values["bend_strength"],
-                            direction=float(source_properties.bend_direction),
+                            direction=source_values["bend_direction"],
                             twist=source_values["twist_strength"],
                             taper=source_values["taper_factor"],
                             stretch=source_values["stretch_factor"],
@@ -4599,11 +4692,16 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
                             # branch in GN/Python owns the actual evaluation.
                             properties.bottom_scale = stage_bottom_scale
                             properties.top_scale = stage_top_scale
-                            # Offsets are authored in the shared seam frame:
-                            # downstream stages start at a zero local offset,
-                            # while their terminal offset remains visible for
-                            # editing and animation.
-                            properties.bottom_offset = (0.0, 0.0)
+                            # A global profile stores the absolute source
+                            # interpolation on every stage.  Keep that value
+                            # intact so the synchronizer can capture the real
+                            # baseline and derive an identity local affine at
+                            # creation time.  Legacy/non-global chains retain
+                            # the zero-bottom representation used by their
+                            # connected local frames.
+                            properties.bottom_offset = (
+                                stage_bottom_offset
+                                if global_profile_mode else (0.0, 0.0))
                             properties.top_offset = stage_top_offset
                     finally:
                         if pointer:

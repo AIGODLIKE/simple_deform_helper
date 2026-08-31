@@ -16,7 +16,11 @@
 
 これまでオブジェクトの変形や変形アニメーションを使いこなせなかったとしても、それはあなたのせいではありません。ツールが十分に使いやすくなかったのです。このツールなら、最高に使いやすい変形体験を得られるはずです。
 
+https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
+
 ## クイックスタート
+
+https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 1. **インストール：** [リリースページ](https://github.com/AIGODLIKE/simple_deform_helper/releases)からダウンロードします。将来は Blender Extensions から直接インストールできるようにする予定ですが、すでに多くの方が利用しているため、十分な実例を集めて安定性を確認してから正式公開します。
 2. **場所：** `N` パネルを開き、**シンプル変形器 V2** タブを探します。

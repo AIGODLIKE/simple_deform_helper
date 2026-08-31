@@ -121,14 +121,12 @@ for stage_index, (stage, stage_controller) in enumerate(
     domain = deform.core._chain_domain_input_values(stage_controller, stage)
     if not bool(domain.get("Chain Global Profile Active", False)):
         raise AssertionError(f"stage {stage_index} did not use global profile")
-    # Bend is retained as a source-frame baseline when an end profile is
-    # authored.  This keeps the changing section frame exact; the regression
-    # contract is that the profile is active once and its local offsets are
-    # not applied a second time.
-    if not bool(domain.get("Chain Global Prefix Active", False)):
-        raise AssertionError(f"stage {stage_index} lost Bend baseline")
-    if not int(domain.get("Chain Global Prefix Types", 0)) & deform.core.DEFORM_BITS["BEND"]:
-        raise AssertionError(f"stage {stage_index} lost Bend baseline mask")
+    # The full-cage profile evaluates once in the root frame, while Bottom-
+    # origin Bend remains an exact per-stage composition. Freezing Bend into
+    # the prefix would bring back the stale first-order baseline this path is
+    # intended to remove.
+    if int(domain.get("Chain Global Prefix Types", 0)) & deform.core.DEFORM_BITS["BEND"]:
+        raise AssertionError(f"stage {stage_index} froze composable Bend in the prefix")
     for socket_name in ("Bottom Offset", "Top Offset"):
         local_socket_offset_max = max(
             local_socket_offset_max,

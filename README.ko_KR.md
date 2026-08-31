@@ -16,7 +16,11 @@
 
 아직 오브젝트 변형과 변형 애니메이션을 제대로 익히지 못했다면, 그것은 여러분의 잘못이 아닙니다. 도구가 충분히 쓰기 쉬워지지 않았을 뿐입니다. 이 도구는 가장 편리한 변형 경험을 제공할 것입니다.
 
+https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
+
 ## 빠른 시작
+
+https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 1. **설치:** [릴리스 페이지](https://github.com/AIGODLIKE/simple_deform_helper/releases)에서 다운로드합니다. 앞으로 Blender Extensions에서 직접 설치할 수 있게 할 예정이지만, 이미 많은 사용자가 이 도구를 쓰고 있으므로 충분한 실제 사례를 수집하고 안정성을 확인한 뒤 정식으로 게시하겠습니다.
 2. **위치:** `N` 패널을 열고 **심플 디포머 V2** 탭을 찾습니다.

@@ -1379,17 +1379,15 @@ def build_node_group(node_group):
         "VECTOR", non_root_chain, raw_local_position,
         chain_adjusted_position)
     x, y, z = separate(local_position)
-    # A downstream stage receives an already-deformed spatial Y.  For mixed
-    # Bend stacks, carry the authored source coordinate so the profile does
-    # not feed upstream lateral motion back into Twist/Taper/Stretch. Pure
-    # Bend keeps the post-frame local Y path.
+    # A downstream stage receives an already-deformed spatial Y whose axial
+    # extent has contracted to the upstream arc's chord.  Every chained Bend
+    # stage therefore evaluates its profile on the authored source coordinate,
+    # the same coordinate chain ownership above already uses, so per-stage arcs
+    # rebuild the authored arc instead of compounding that chord error.
     bend_mask = compare(
         "FLOAT", "GREATER_THAN",
         math_node("MODULO", deform_mask, 2.0), 0.5)
-    mixed_bend = boolean(
-        "AND", bend_mask,
-        compare("INT", "GREATER_THAN", deform_mask, 2))
-    mixed_chain = boolean("AND", is_chained, mixed_bend)
+    mixed_chain = boolean("AND", is_chained, bend_mask)
     chain_authored_y = math_node(
         "SUBTRACT",
         source_coordinate,
@@ -1407,20 +1405,16 @@ def build_node_group(node_group):
     frame_t = switch(
         "FLOAT", is_unlimited, frame_t_clamped, frame_t_raw)
 
-    # Chain subdivision keeps per-stage profile values visible for authoring,
-    # while the root's global profile inputs are the single source of truth
-    # during evaluation.  Select identity local values whenever that global
-    # path is active so GN cannot apply the profile twice.
-    identity_profile = combine(1.0, 1.0, 1.0)
-    identity_offset = combine(0.0, 0.0, 0.0)
-    effective_top_scale = switch(
-        "VECTOR", chain_global_profile_active, top_scale, identity_profile)
-    effective_bottom_scale = switch(
-        "VECTOR", chain_global_profile_active, bottom_scale, identity_profile)
-    effective_top_offset = switch(
-        "VECTOR", chain_global_profile_active, top_offset, identity_offset)
-    effective_bottom_offset = switch(
-        "VECTOR", chain_global_profile_active, bottom_offset, identity_offset)
+    # A subdivided chain evaluates the authored full-cage profile once in the
+    # root frame.  Its local sockets then carry an affine correction relative
+    # to that baseline (the synchronizer writes these values), so they must
+    # remain in the profile interpolation even while the global path is on.
+    # Older files have absolute values here; the first controller sync
+    # materializes the relative corrections before evaluation.
+    effective_top_scale = top_scale
+    effective_bottom_scale = bottom_scale
+    effective_top_offset = top_offset
+    effective_bottom_offset = bottom_offset
     top_scale_x, _top_scale_y, top_scale_z = separate(effective_top_scale)
     bottom_scale_x, _bottom_scale_y, bottom_scale_z = separate(effective_bottom_scale)
     top_offset_x, _top_offset_y, top_offset_z = separate(effective_top_offset)

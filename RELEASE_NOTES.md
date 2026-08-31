@@ -1,3 +1,32 @@
+# Simple Deform Helper 2.7.55
+
+## Faster Geometry Nodes Startup
+
+- Updated the packaged Cage Deform Geometry Nodes asset to schema 44 so the
+  first cage can load the prepared graph directly instead of rebuilding it in
+  Python after a node-graph change.
+- Reused the packaged template when upgrading older managed stages, preserving
+  modifier inputs and persistent metadata while avoiding one rebuild per cage.
+- Reduced installed cold Standard cage creation to about 0.05 seconds on both
+  Blender 5.0.1 and Blender 5.2.0 LTS in isolated validation.
+
+## Chained Cage Reliability
+
+- Fixed root Top boundary edits and chain-global end profiles so viewport cages
+  remain aligned with evaluated geometry across every chained stage.
+- Corrected Twist-to-Bend composition for Top, Center, and Symmetric origins by
+  keeping the authored Bend direction in the global prefix and compensating
+  only the local stage plane.
+- Reconciled stale chain-global Twist metadata after a Twist layer is removed,
+  preventing deleted deformation from surviving in previously saved files.
+- Added regression coverage for packaged node upgrades, supplied project-file
+  failures, global profile previews, and removed-Twist migration.
+
+## Documentation
+
+- Synchronized the new Chinese README demonstration media across English,
+  Japanese, Korean, and the repository landing page.
+
 # Simple Deform Helper 2.7.51
 
 ## Per-View Display and Multi-Object Cage Selection

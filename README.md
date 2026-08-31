@@ -16,7 +16,11 @@
 
 If you still have not mastered object deformation and deformation animation, that is not your fault: the tools have not been easy enough to use. Trust me, this tool can give you the best deformation experience on Earth.
 
+https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
+
 ## Quick Start
+
+https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 1. **Install:** Download it from the [Releases page](https://github.com/AIGODLIKE/simple_deform_helper/releases). It may be available directly from Blender Extensions in the future; because so many people are already using it, I want to collect enough real-world samples and confirm its stability before publishing the official listing.
 2. **Open:** Press `N` and find the **Simple Deformer V2** tab.

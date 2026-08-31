@@ -177,19 +177,19 @@ def deform_point_local(point, size, deform_type="BEND", strength=0.0,
             except (TypeError, ValueError, RuntimeError):
                 chain_output = None
 
-    # A chained stage receives an already-deformed spatial Y from upstream,
-    # but a mixed Bend stage must evaluate its profile in the original source
-    # coordinate.  Geometry Nodes carries that coordinate through the point
-    # domain; the optional arguments keep the Python reference evaluator and
-    # frame sampling on the same authored axis.  Pure Bend remains on the
-    # post-frame local Y path because its axial composition is intentionally
-    # spatial.
+    # A chained stage receives an already-deformed spatial Y whose axial
+    # extent has contracted to the upstream arc's chord.  Every chained Bend
+    # stage therefore evaluates its profile in the original source
+    # coordinate - the same coordinate chain ownership uses - so per-stage
+    # arcs rebuild the authored arc instead of compounding the chord error.
+    # Geometry Nodes carries that coordinate through the point domain; the
+    # optional arguments keep the Python reference evaluator and frame
+    # sampling on the same authored axis.
     authored_y_input = point.y
     mixed_chain_source = (
         mode == "CHAINED" and
         chain_source_coordinate is not None and
-        "BEND" in enabled and
-        any(operation != "BEND" for operation in operation_order)
+        "BEND" in enabled
     )
     if mixed_chain_source:
         try:
