@@ -19,7 +19,17 @@
 如果你至今都没有掌握物体变形&变形动画，这不是你的错，而是工具不够好用。相信我，这个工具能够让你获得地球上最好用的变形器体验。
 
 
+
+
+
+https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
+
 ## 快速开始
+
+
+https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
+
+
 
 1. 安装：从[发行版页面](https://github.com/AIGODLIKE/simple_deform_helper/releases)下载（或未来从Blender extension直接安装，目前这个工具有太多人在用了，我需要收集足够的样本确保它的稳定性才会推送正式版）
 2. 位置：打开N面板，找到简易形变器V2.
@@ -69,6 +79,10 @@
 弯曲方向不对？启动显示轴向切换，根据弯曲方向Gizmo，选择方向。（弯曲的轴向优先级最高，即使有其他的形变也会以弯曲为最优先显示）
 
 <img width="2560" height="1380" alt="image" src="https://github.com/user-attachments/assets/eac08361-5d2f-424c-b59f-ff88a1302b4d" />
+
+
+
+
 
 ##### 重要特性：弯曲起始点
 
