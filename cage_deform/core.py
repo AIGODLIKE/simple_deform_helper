@@ -854,6 +854,17 @@ _CHAIN_GLOBAL_STRETCH_GUARD = set()
 # chain, so the stages it touches must not re-enter their own update callback.
 _CHAIN_GLOBAL_PREFIX_GUARD = set()
 _CHAIN_RECONNECTING = set()
+# A modal Gizmo drag is one logical chain transaction.  Property callbacks
+# still push the edited stage immediately, but downstream propagation is
+# committed in the same event instead of being queued for a second timer
+# pass.  The set is deliberately target/UUID scoped so independent chains on
+# one object do not suppress each other.
+_CHAIN_INTERACTIONS = set()
+# End-profile drags update the two seam participants on every mouse sample,
+# while the affine frame of the unchanged suffix can be committed once when
+# the modal operation closes.  Keep the earliest affected stage per active
+# target/chain so repeated samples do not rebuild the same suffix.
+_CHAIN_INTERACTION_DIRTY = {}
 _CHAIN_RECONNECT_QUEUE = {}
 _CHAIN_AFFINE_FRAME_CACHE = {}
 # A wire rebuild samples dozens of points from the same chained stage. Cache
@@ -861,6 +872,12 @@ _CHAIN_AFFINE_FRAME_CACHE = {}
 # matrices, domains, relative end scales, and conjugation frames.
 _CHAIN_DISPLAY_STATE_CACHE = {}
 _CHAIN_DISPLAY_STATE_CACHE_LIMIT = 64
+# A modal end-scale drag keeps a structural display plan and its seam frames
+# alive while only the authored end profiles change.  The normal signature
+# cache cannot hit in that situation because the profile values are part of
+# the key; this short-lived context provides a cheap dynamic overlay.
+_CHAIN_END_SCALE_CONTEXTS = {}
+_CHAIN_END_SCALE_CONTEXT_BY_CONTROLLER = {}
 # Hidden chain-domain inputs are read by every stage synchronisation and by
 # the affine-frame solver.  Their values only change when chain metadata,
 # gaps, global chain options, or a controller's authored size changes.  Keep
@@ -956,14 +973,38 @@ CHAIN_ROOT_OUTPUT_AFFINE_PROP = "_sdh_cage_chain_root_output_affine"
 CHAIN_DOMAIN_ATTRIBUTE_PREFIX = ".sdh_chain_domain_"
 
 
-def invalidate_chain_affine_cache(target=None):
-    """Invalidate cached physical chain frames after an authored change."""
+def invalidate_chain_affine_cache(target=None, *, start_index=None):
+    """Invalidate cached physical chain frames after an authored change.
+
+    ``start_index`` is the first stage whose authored state changed.  Cache
+    entries are keyed by the length of their evaluated prefix, so entries for
+    prefixes ending before that stage remain valid and can be reused by the
+    next reconnect.  Callers that do not know the affected stage retain the
+    old whole-target invalidation behavior.
+    """
     if target is None:
         _CHAIN_AFFINE_FRAME_CACHE.clear()
         return
     pointer = _pointer(target)
+    try:
+        first_invalid = None if start_index is None else max(
+            int(start_index), 0)
+    except (TypeError, ValueError):
+        first_invalid = None
     for key in tuple(_CHAIN_AFFINE_FRAME_CACHE):
-        if key[0] == pointer:
+        if key[0] != pointer:
+            continue
+        if first_invalid is None:
+            _CHAIN_AFFINE_FRAME_CACHE.pop(key, None)
+            continue
+        # Reconnect frame keys are ``(target, stage, state_prefix)``.  A
+        # prefix of length N ends at stage N-1 and remains valid when the
+        # first changed stage is N or later.
+        try:
+            prefix_length = len(key[2])
+        except (IndexError, TypeError):
+            prefix_length = first_invalid + 1
+        if prefix_length > first_invalid:
             _CHAIN_AFFINE_FRAME_CACHE.pop(key, None)
 
 
@@ -3169,6 +3210,14 @@ def chain_display_preview_state(properties, *, through_current=False):
     controller = getattr(properties, "id_data", None)
     if not is_cage_controller(controller):
         return None
+    # During an end-scale modal drag, reuse the frozen structural plan and
+    # update only its dynamic profile values.  ``through_current`` is used by
+    # the boundary-frame sampler; that path must retain the full conservative
+    # resolver and therefore bypasses the overlay.
+    if not through_current:
+        interactive = _interactive_chain_display_state(properties)
+        if interactive is not None:
+            return interactive
     target = find_target(controller)
     modifier = find_modifier(target, controller)
     if (
@@ -3360,6 +3409,159 @@ def chain_display_preview_state(properties, *, through_current=False):
             RuntimeError, TypeError, ValueError, OverflowError,
     ):
         return None
+
+
+def _interactive_end_scale_context(controller):
+    """Return the active modal end-scale context for one controller."""
+    try:
+        context = _CHAIN_END_SCALE_CONTEXT_BY_CONTROLLER.get(_pointer(controller))
+    except (AttributeError, ReferenceError, TypeError, ValueError):
+        context = None
+    if not context:
+        return None
+    # A deleted/replaced controller can retain the pointer briefly while
+    # Blender rebuilds the dependency graph.  Refuse the overlay in that
+    # window; the ordinary resolver remains the safe fallback.
+    try:
+        if controller not in context["controllers"]:
+            return None
+    except (AttributeError, ReferenceError, TypeError, ValueError):
+        return None
+    return context
+
+
+def _interactive_chain_display_state(properties):
+    """Build a dynamic end-profile view over a frozen chain display plan.
+
+    End-scale interaction changes only the two seam profiles.  Controller
+    transforms, topology, operation order, and the sampled affine frames stay
+    fixed until the modal transaction is finalized.  Reusing those arrays
+    avoids rebuilding the full cumulative-chain plan on every mouse sample.
+    """
+    controller = getattr(properties, "id_data", None)
+    context = _interactive_end_scale_context(controller)
+    if context is None:
+        return None
+    try:
+        controllers = context["controllers"]
+        stages = context["stages"]
+        index = controllers.index(controller)
+        base = context["base_state"]
+        if any(item is None for item in base.get("prepared_stages", ())):
+            return None
+        dynamic = []
+        prepared = []
+        for item, stage, base_item in zip(controllers, stages,
+                                          base["prepared_stages"]):
+            item_properties = item.sdh_cage_deform
+            top, bottom = evaluator_end_scales(
+                item_properties, item, stage)
+            top = tuple(float(value) for value in top)
+            bottom = tuple(float(value) for value in bottom)
+            dynamic.append((top, bottom))
+            current = dict(base_item)
+            current.update({
+                "size": tuple(item_properties.size),
+                "top_scale": top,
+                "bottom_scale": bottom,
+                "top_offset": tuple(item_properties.top_offset),
+                "bottom_offset": tuple(item_properties.bottom_offset),
+                "stage_enabled": bool(getattr(
+                    item_properties, "stage_enabled", True)),
+            })
+            prepared.append(current)
+        signature = (
+            "SDH_CHAIN_INTERACTIVE_DISPLAY_V1",
+            context["base_signature"],
+            tuple(
+                tuple(float(value).hex() for value in pair_value)
+                for pair in dynamic for pair_value in pair
+            ),
+        )
+        cached = context.get("last_state")
+        if cached is not None and cached.get("signature") == signature:
+            return cached
+        state = dict(base)
+        state.update({
+            "signature": signature,
+            "controller": controller,
+            "current_index": index,
+            "current_half_y": max(
+                abs(float(properties.size[1])) * 0.5, EPSILON),
+            "end_scales": tuple(dynamic),
+            "prepared_stages": tuple(prepared),
+        })
+        context["last_state"] = state
+        return state
+    except (AttributeError, IndexError, KeyError, ReferenceError,
+            RuntimeError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def begin_chain_end_scale_interaction(target, modifier, controller, side="TOP"):
+    """Freeze structural chain preview data for one end-scale modal drag."""
+    if target is None or modifier is None or controller is None:
+        return False
+    try:
+        from . import chain as chain_module
+        chain_uuid = chain_module.stage_chain_uuid(modifier)
+        stages = tuple(chain_module.chain_stages(target, chain_uuid))
+        if (
+                not chain_uuid or len(stages) < 2 or
+                str(chain_module.stage_chain_mode(stages[0], "")).upper()
+                not in {"CHAINED", "CONNECTED"}
+        ):
+            return False
+        controllers = tuple(find_controller(target, stage) for stage in stages)
+        if any(item is None for item in controllers):
+            return False
+        if controller not in controllers:
+            return False
+        # Build the ordinary plan once, before any RNA profile write changes
+        # its signature.  Only simple standard stages use the frozen overlay;
+        # Curve/FFD/global-profile paths retain their conservative evaluator.
+        base_state = chain_display_preview_state(
+            controller.sdh_cage_deform, through_current=False)
+        if not base_state or any(
+                item is None for item in base_state.get("prepared_stages", ())):
+            return False
+        key = _chain_request_key(target, chain_uuid)
+        previous = _CHAIN_END_SCALE_CONTEXTS.get(key)
+        if previous is not None:
+            for pointer in previous.get("controller_pointers", ()):
+                _CHAIN_END_SCALE_CONTEXT_BY_CONTROLLER.pop(pointer, None)
+        context = {
+            "target": target,
+            "chain_uuid": str(chain_uuid),
+            "stages": stages,
+            "controllers": controllers,
+            "controller_pointers": tuple(_pointer(item) for item in controllers),
+            "base_state": base_state,
+            "base_signature": base_state.get("signature", ()),
+            "side": str(side or "TOP").upper(),
+            "last_state": None,
+        }
+        _CHAIN_END_SCALE_CONTEXTS[key] = context
+        for pointer in context["controller_pointers"]:
+            if pointer:
+                _CHAIN_END_SCALE_CONTEXT_BY_CONTROLLER[pointer] = context
+        return True
+    except (ImportError, AttributeError, IndexError, KeyError, ReferenceError,
+            RuntimeError, TypeError, ValueError):
+        return False
+
+
+def end_chain_end_scale_interaction(target=None, chain_uuid=""):
+    """Release a frozen end-scale preview context after modal completion."""
+    if target is None:
+        return False
+    key = _chain_request_key(target, chain_uuid)
+    context = _CHAIN_END_SCALE_CONTEXTS.pop(key, None)
+    if context is None:
+        return False
+    for pointer in context.get("controller_pointers", ()):
+        _CHAIN_END_SCALE_CONTEXT_BY_CONTROLLER.pop(pointer, None)
+    return True
 
 
 def chain_display_preview_signature(state):
@@ -3908,7 +4110,7 @@ def _chain_output_affine(frame):
 
 
 def chain_conjugation_frames_for_controller(
-        controller, modifier=None, properties=None):
+        controller, modifier=None, properties=None, *, _frame_map=None):
     """Return the persisted root output or downstream conjugation frames.
 
     A previous stage can deliver a scaled or sheared section that an Empty's
@@ -3929,8 +4131,12 @@ def chain_conjugation_frames_for_controller(
         _identity_chain_output_frame(),
     )
     if properties is None or str(getattr(properties, "mode", "")) != "CHAINED":
+        if _frame_map is not None:
+            _frame_map[_pointer(controller)] = identity
         return identity
     if not is_cage_controller(controller):
+        if _frame_map is not None:
+            _frame_map[_pointer(controller)] = identity
         return identity
     target = find_target(controller)
     if modifier is None:
@@ -3940,6 +4146,8 @@ def chain_conjugation_frames_for_controller(
             _managed_chain_mode(controller, modifier) not in
             {"CHAINED", "CONNECTED"}
     ):
+        if _frame_map is not None:
+            _frame_map[_pointer(controller)] = identity
         return identity
     try:
         from . import chain as chain_module
@@ -3947,11 +4155,14 @@ def chain_conjugation_frames_for_controller(
         stages = tuple(chain_module.chain_stages(target, chain_uuid))
         stage_index = stages.index(modifier)
         if stage_index == 0:
-            return (
+            result = (
                 identity[0],
                 _chain_output_tuple(chain_root_output_affine(
                     controller, modifier)),
             )
+            if _frame_map is not None:
+                _frame_map[_pointer(controller)] = result
+            return result
         controllers = tuple(
             find_controller(target, stage) for stage in stages[:stage_index + 1])
         if any(item is None for item in controllers):
@@ -4037,6 +4248,7 @@ def chain_conjugation_frames_for_controller(
         for item, stage, matrix, source_start in zip(
                 controllers, stages, matrices, source_starts):
             item_properties = item.sdh_cage_deform
+            stage_root_output = chain_root_output_affine(item, stage)
             state.append((
                 _pointer(item),
                 tuple(float(value).hex() for row in matrix for value in row),
@@ -4076,7 +4288,7 @@ def chain_conjugation_frames_for_controller(
                 bool(getattr(stage, "show_viewport", True)),
                 floats(
                     value
-                    for row in chain_root_output_affine(item, stage)
+                    for row in stage_root_output
                     for value in row
                 ),
             ))
@@ -4088,9 +4300,22 @@ def chain_conjugation_frames_for_controller(
         cache_key = cache_keys[stage_index]
         cached = _CHAIN_AFFINE_FRAME_CACHE.get(cache_key)
         if cached is not None:
-            return tuple(
+            result = tuple(
                 tuple(Vector(value) for value in frame)
                 for frame in cached)
+            if _frame_map is not None:
+                # The cached prefix contains all stages up to the requested
+                # stage.  Populate the caller's map in one pass so a full
+                # reconnect does not invoke this resolver once per stage.
+                for cache_index, cache_key_item in enumerate(cache_keys):
+                    cached_item = _CHAIN_AFFINE_FRAME_CACHE.get(cache_key_item)
+                    if cached_item is None:
+                        continue
+                    _frame_map[_pointer(controllers[cache_index])] = tuple(
+                        tuple(Vector(value) for value in frame)
+                        for frame in cached_item)
+                _frame_map[_pointer(controller)] = result
+            return result
 
         if len(_CHAIN_AFFINE_FRAME_CACHE) >= 128:
             _CHAIN_AFFINE_FRAME_CACHE.clear()
@@ -4124,6 +4349,10 @@ def chain_conjugation_frames_for_controller(
                     cached_stage[0], half_y)
                 output_affines[index] = _chain_output_affine(
                     cached_stage[1])
+                if _frame_map is not None:
+                    _frame_map[_pointer(controllers[index])] = tuple(
+                        tuple(Vector(value) for value in frame)
+                        for frame in cached_stage)
                 continue
 
             def incoming(local_authored, current=index, half=half_y):
@@ -4247,17 +4476,23 @@ def chain_conjugation_frames_for_controller(
             _CHAIN_AFFINE_FRAME_CACHE[cache_keys[index]] = tuple(
                 tuple(tuple(value) for value in frame)
                 for frame in stage_result)
+            if _frame_map is not None:
+                _frame_map[_pointer(controllers[index])] = stage_result
 
         half_y = max(abs(float(properties.size[1])) * 0.5, EPSILON)
         result = (
             _chain_input_tuple(incoming_affines[stage_index], half_y),
             _chain_output_tuple(output_affines[stage_index]),
         )
+        if _frame_map is not None:
+            _frame_map[_pointer(controller)] = result
         return result
     except (
             AttributeError, ImportError, IndexError, KeyError, ReferenceError,
             RuntimeError, TypeError, ValueError,
     ):
+        if _frame_map is not None:
+            _frame_map[_pointer(controller)] = identity
         return identity
 
 
@@ -4271,10 +4506,29 @@ def precompute_chain_conjugation_frames(controllers, modifiers):
     """
     pairs = tuple(zip(tuple(controllers), tuple(modifiers)))
     frames = {}
-    for controller, modifier in reversed(pairs):
+    if not pairs:
+        return frames
+
+    # Resolving the final stage builds every missing prefix and stores it in
+    # ``_CHAIN_AFFINE_FRAME_CACHE``.  The previous reverse walk called the
+    # resolver once per stage; each call rebuilt the same topology/signature
+    # tuples even when it immediately hit that cache.  Ask one tip pass to
+    # collect the complete prefix map instead.
+    controller, modifier = pairs[-1]
+    if controller is not None and modifier is not None:
+        chain_conjugation_frames_for_controller(
+            controller, modifier, controller.sdh_cage_deform,
+            _frame_map=frames)
+
+    # Be defensive for a truncated/malformed pair list or a resolver that
+    # could not populate a stage because its RNA wrapper changed mid-pass.
+    for controller, modifier in pairs:
         if controller is None or modifier is None:
             continue
-        frames[_pointer(controller)] = chain_conjugation_frames_for_controller(
+        pointer = _pointer(controller)
+        if pointer in frames:
+            continue
+        frames[pointer] = chain_conjugation_frames_for_controller(
             controller, modifier, controller.sdh_cage_deform)
     return frames
 
@@ -5488,6 +5742,156 @@ def pending_chain_reconnect_start_index(target, chain_uuid, fallback=0):
         return dirty_index
 
 
+def begin_chain_interaction(target, chain_uuid=""):
+    """Mark a modal chain edit as active and return whether it was accepted.
+
+    Gizmo callbacks can run several times for one mouse sample.  Keeping the
+    marker outside Blender RNA avoids adding transient state to saved files
+    and lets :func:`sync_controller` distinguish an interactive edit from a
+    normal panel/script property write.
+    """
+    if target is None or not chain_uuid:
+        return False
+    key = _chain_request_key(target, chain_uuid)
+    # Do not reset a nested/re-entrant marker: a property callback may enter
+    # this helper more than once while one Gizmo drag is still active.
+    if key not in _CHAIN_INTERACTIONS:
+        _CHAIN_INTERACTION_DIRTY.pop(key, None)
+    _CHAIN_INTERACTIONS.add(key)
+    return True
+
+
+def end_chain_interaction(target, chain_uuid=""):
+    """Commit and clear a modal chain edit marker after the Gizmo exits."""
+    if target is None or not chain_uuid:
+        return False
+    key = _chain_request_key(target, chain_uuid)
+    if key in _CHAIN_INTERACTIONS:
+        # End-profile drags intentionally defer the expensive downstream frame
+        # solve until the modal boundary.  Finalize it before releasing the
+        # marker so callbacks generated by the reconnect remain coalesced.
+        flush_chain_interaction(target, chain_uuid)
+    _CHAIN_INTERACTIONS.discard(key)
+    _CHAIN_INTERACTION_DIRTY.pop(key, None)
+    return True
+
+
+def chain_interaction_active(target, chain_uuid=""):
+    """Return whether a target/chain is currently edited by a Gizmo."""
+    if target is None or not chain_uuid:
+        return False
+    return _chain_request_key(target, chain_uuid) in _CHAIN_INTERACTIONS
+
+
+def mark_chain_interaction_dirty(target, chain_uuid="", start_index=0):
+    """Remember the earliest chain stage changed by a modal property edit."""
+    if target is None or not chain_uuid:
+        return False
+    key = _chain_request_key(target, chain_uuid)
+    if key not in _CHAIN_INTERACTIONS:
+        return False
+    try:
+        index = max(int(start_index), 0)
+    except (TypeError, ValueError):
+        index = 0
+    previous = _CHAIN_INTERACTION_DIRTY.get(key)
+    _CHAIN_INTERACTION_DIRTY[key] = (
+        index if previous is None else min(index, int(previous)))
+    return True
+
+
+def flush_chain_interaction(target, chain_uuid=""):
+    """Commit deferred end-profile frames for the active modal interaction.
+
+    Returns ``True`` when no work (or no valid chain) remains.  A failed solve
+    is put back on the normal reconnect queue so a transient depsgraph reload
+    cannot leave the evaluated object stale.
+    """
+    if target is None or not chain_uuid:
+        return False
+    key = _chain_request_key(target, chain_uuid)
+    dirty = _CHAIN_INTERACTION_DIRTY.pop(key, None)
+    if dirty is None:
+        return True
+    try:
+        from . import chain as chain_module
+        if not chain_module.chain_auto_reconnect(target, chain_uuid, True):
+            return True
+        stages = tuple(chain_module.chain_stages(target, chain_uuid))
+        if len(stages) < 2:
+            return True
+        start_index = min(max(int(dirty), 0), len(stages) - 1)
+        transaction = chain_reconnect_transaction
+        with transaction(target, chain_uuid) as commit:
+            chain_module.reconnect_chain(
+                target, chain_uuid, start_index=start_index,
+                runtime_only=True)
+            commit()
+        return True
+    except (ImportError, AttributeError, IndexError, ReferenceError,
+            RuntimeError, TypeError, ValueError):
+        # Preserve a safe deferred fallback when Blender is rebuilding the
+        # modifier or node-group data during modal exit.
+        _CHAIN_RECONNECT_QUEUE[key] = (target, str(chain_uuid), max(int(dirty), 0))
+        return False
+
+
+def reconnect_chain_interaction(controller, target=None, modifier=None):
+    """Reconnect the changed suffix once during an active modal edit.
+
+    The controller callback has already pushed the edited stage's own GN
+    inputs.  Only stages after it need frame propagation.  An older queued
+    request is folded into the same transaction so a drag cannot leave a
+    second full reconnect waiting on the timer.
+    """
+    if controller is None or not is_cage_controller(controller):
+        return False
+    if target is None or modifier is None:
+        target, modifier = _target_and_modifier(controller)
+    if target is None or modifier is None:
+        return False
+    try:
+        from . import chain as chain_module
+        chain_uuid = chain_module.stage_chain_uuid(modifier)
+        if not chain_uuid or not chain_interaction_active(target, chain_uuid):
+            return False
+        stages = tuple(chain_module.chain_stages(target, chain_uuid))
+        if len(stages) < 2:
+            return False
+        stage_index = stages.index(modifier)
+        # The physical tip has no downstream frame to update.  Its own GN
+        # sockets were pushed by sync_controller, so a reconnect would only
+        # invalidate caches and tag the target again.
+        if stage_index >= len(stages) - 1:
+            return False
+        pending = pending_chain_reconnect_start_index(
+            target, chain_uuid, stage_index)
+        auto_reconnect = chain_module.chain_auto_reconnect(
+            target, chain_uuid, True)
+        if not auto_reconnect:
+            return False
+        transaction = chain_reconnect_transaction
+        with transaction(target, chain_uuid) as commit:
+            updated = chain_module.reconnect_chain(
+                target,
+                chain_uuid,
+                start_index=pending,
+                runtime_only=True,
+            )
+            commit()
+        # The boolean result means that the inline transaction was handled,
+        # not that at least one controller transform changed.  A valid
+        # transaction can legitimately update zero stages (for example when a
+        # pending request has already advanced to the physical tip).  Treating
+        # that case as failure would enqueue a redundant deferred reconnect.
+        return True
+    except (ImportError, AttributeError, IndexError, ReferenceError,
+            RuntimeError, TypeError, ValueError):
+        # Keep the regular timer queue as a safe fallback for transient
+        # Blender reload/depsgraph states.
+        return False
+
+
 @contextmanager
 def chain_reconnect_transaction(target, chain_uuid):
     """Suppress deferred reconnects while a chain edit reconnects immediately.
@@ -5895,6 +6299,16 @@ def request_chain_reconnect(
         except (TypeError, ValueError):
             dirty_index = 0
     dirty_index = min(max(dirty_index, 0), len(stages) - 1)
+    if (
+            source_controller is not None and start_index is None and
+            not include_stage and not force and
+            dirty_index >= len(stages) - 1
+    ):
+        # A local property edit on the physical tip has no downstream frame to
+        # propagate. The active controller has already pushed its own GN
+        # inputs, so queuing a reconnect would only clear caches and tag the
+        # target for a second dependency-graph evaluation.
+        return False
     key = _chain_request_key(target, chain_uuid)
     first_request = key not in _CHAIN_RECONNECT_QUEUE
     previous = _CHAIN_RECONNECT_QUEUE.get(key)
@@ -5983,10 +6397,14 @@ def clear_chain_reconnect_state():
     clear_node_runtime_state()
     _CONTROLLER_TRANSFORM_QUEUE.clear()
     _CHAIN_RECONNECTING.clear()
+    _CHAIN_INTERACTIONS.clear()
+    _CHAIN_INTERACTION_DIRTY.clear()
     clear_ffd_scope_cache()
     _FFD_GUARD_VALID_OFFSETS.clear()
     _CHAIN_AFFINE_FRAME_CACHE.clear()
     _CHAIN_DISPLAY_STATE_CACHE.clear()
+    _CHAIN_END_SCALE_CONTEXTS.clear()
+    _CHAIN_END_SCALE_CONTEXT_BY_CONTROLLER.clear()
     _CHAIN_DOMAIN_INPUT_CACHE.clear()
     _CONTROLLER_SIZE_SNAPSHOTS.clear()
     _CONTROLLER_TRANSFORM_SNAPSHOTS.clear()
@@ -6224,7 +6642,23 @@ def _controller_update(properties, _context):
         except (TypeError, ValueError, OverflowError):
             origin_before_value = None
         _enforce_chain_properties(controller, properties)
-        sync_controller(controller, pull_transform=False)
+        sync_changed = sync_controller(controller, pull_transform=False)
+        # A modal chain Gizmo has already established a transaction marker.
+        # Commit the affected suffix now, before Blender's next dependency
+        # graph evaluation, so the current stage and its downstream frames
+        # are evaluated together instead of in two event-loop passes.
+        interaction_reconnected = False
+        if sync_changed:
+            interaction_reconnected = reconnect_chain_interaction(
+                controller, target_before, modifier_before)
+            if (
+                    not interaction_reconnected and target_before is not None and
+                    modifier_before is not None and chain_uuid_before
+            ):
+                # A transient reload/depsgraph failure must not lose the
+                # normal deferred safety net.  Tip edits are filtered as a
+                # no-op by request_chain_reconnect itself.
+                request_chain_reconnect(controller)
         if (
                 origin_before_value is not None and target_before is not None and
                 modifier_before is not None and chain_uuid_before and
@@ -6236,7 +6670,10 @@ def _controller_update(properties, _context):
                 key = _chain_request_key(target_before, chain_uuid_before)
                 auto_reconnect = chain_module.chain_auto_reconnect(
                     target_before, chain_uuid_before, True)
-                if auto_reconnect and key not in _CHAIN_RECONNECTING:
+                if (
+                        auto_reconnect and not interaction_reconnected and
+                        key not in _CHAIN_RECONNECTING
+                ):
                     with chain_reconnect_transaction(
                             target_before, chain_uuid_before) as commit:
                         chain_module.reconnect_chain(
@@ -11798,7 +12235,14 @@ def sync_controller(
             chain_target is not None and chain_uuid and
             _chain_request_key(chain_target, chain_uuid) in _CHAIN_RECONNECTING
         )
-        if (changed or transform_changed) and not internal_reconnect:
+        interactive_chain = bool(
+            chain_target is not None and chain_uuid and
+            chain_interaction_active(chain_target, chain_uuid)
+        )
+        if (
+                (changed or transform_changed) and
+                not internal_reconnect and not interactive_chain
+        ):
             request_chain_reconnect(
                 controller, include_stage=transform_changed)
             request_stack_auto_fit(controller, modifier)
@@ -14145,6 +14589,17 @@ def _selected_supported_cage_targets(context):
     )
 
 
+def _is_deform_merge_target(target):
+    """Return whether a cage target is the generated multi-object merge."""
+    if target is None:
+        return False
+    try:
+        from .merge import is_deform_merge
+        return bool(is_deform_merge(target))
+    except (ImportError, ReferenceError, RuntimeError, TypeError):
+        return False
+
+
 def _create_cage_stage_for_target(
         context, target, cage_type, initial_deform_type="BEND"):
     active = target.modifiers.active
@@ -14163,14 +14618,19 @@ def _create_cage_stage_for_target(
 def _activate_created_cage_stage(context, target, controller, cage_type):
     """Finish cage creation with a selection stable across deferred sync."""
     cage_type = str(cage_type).upper()
-    if cage_type in {"FFD", "CURVE"}:
+    keep_target_active = (
+        cage_type in {"FFD", "CURVE"} or
+        _is_deform_merge_target(target)
+    )
+    if keep_target_active:
         # Activating a Workspace Tool can rebuild Blender's Gizmo map and
         # briefly touch selection. Set the dedicated tool first, then leave the
-        # controlled object active with its controller(s) selected for the
-        # Timeline. The deferred selection watcher now derives the same cage
-        # type and cannot restore the native tool before the first blank drag.
+        # controlled object active with every related controller selected for
+        # the Timeline. Generated multi-object merges also need this target-
+        # active state for the N-panel and viewport cage to remain visible.
         activate_cage_workspace_tool(context, cage_type)
         _activate(context, target)
+        _sync_target_cage_selection(context, target)
         refresh_controller_display(context, force=True)
         _selection_sync_notify()
         return
@@ -14330,16 +14790,6 @@ class SDH_OT_add_cage_deform(Operator):
             return {"CANCELLED"}
         _activate_created_cage_stage(
             context, target, controller, self.cage_type)
-        if merge_target is not None:
-            # Standard/Shear creation temporarily activates the Empty
-            # controller so its handles can be initialized.  For a direct
-            # multi-object add, the merged mesh is the user-facing object and
-            # must finish active; keep every related controller selected so
-            # Timeline/Gizmo state remains available without hiding the cage.
-            _activate(context, merge_target)
-            _sync_target_cage_selection(context, merge_target)
-            refresh_controller_display(context, force=True)
-            _selection_sync_notify()
         self.report({"INFO"}, iface_({
             "SHEAR": "Added Shear Cage stage",
             "FFD": "Added FFD Cage stage",

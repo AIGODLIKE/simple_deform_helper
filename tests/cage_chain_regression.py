@@ -1486,6 +1486,193 @@ case("root_end_scale_update_refreshes_entire_chain",
      root_end_scale_update_refreshes_entire_chain)
 
 
+def tip_local_parameter_skips_empty_reconnect():
+    """A tip-only parameter edit must not schedule a no-op chain refresh."""
+    target = make_object(
+        "SDH Tip Local Reconnect",
+        ((-0.6, -3.0, -0.5), (0.6, -3.0, 0.5),
+         (-0.7, 3.0, 0.5), (0.7, 3.0, -0.5)),
+    )
+    check(
+        bpy.ops.sdh.add_cage_chain(
+            count=3,
+            connection_mode="CHAINED",
+            gap=0.1,
+            auto_reconnect=True,
+            alignment="POS_Y",
+            origin="CENTER",
+        ) == {"FINISHED"},
+        "tip reconnect chain creation failed",
+    )
+    stages = chain.chain_stages(target)
+    controllers = tuple(
+        deform.find_controller(target, stage) for stage in stages)
+    check(len(stages) == 3 and all(controllers),
+          "tip reconnect chain is incomplete")
+    deform.core.flush_pending_chain_updates(target)
+    deform.core._CHAIN_RECONNECT_QUEUE.clear()
+    tip = controllers[-1]
+    value = float(tip.sdh_cage_deform.bend_strength) + math.radians(9.0)
+    tip.sdh_cage_deform.bend_strength = value
+    check(not deform.core._CHAIN_RECONNECT_QUEUE,
+          "tip-only Bend edit queued a downstream reconnect")
+    check(abs(float(deform.modifier_input(
+        stages[-1], "Bend Angle")) - value) < 1.0e-6,
+        "tip-only Bend edit did not update its own stage")
+    return round(value, 6)
+
+
+case("tip_local_parameter_skips_empty_reconnect",
+     tip_local_parameter_skips_empty_reconnect)
+
+
+def modal_interaction_coalesces_reconnect():
+    """Modal chain edits reconnect inline without leaving a timer request."""
+    target = make_object(
+        "SDH Modal Interaction",
+        ((-0.8, -3.0, -0.5), (0.8, -3.0, 0.5),
+         (-0.7, 0.0, 0.6), (0.7, 0.0, -0.6),
+         (-0.6, 3.0, -0.4), (0.6, 3.0, 0.4)),
+    )
+    check(
+        bpy.ops.sdh.add_cage_chain(
+            count=3,
+            connection_mode="CHAINED",
+            gap=0.1,
+            auto_reconnect=True,
+            alignment="POS_Y",
+            origin="BOTTOM",
+        ) == {"FINISHED"},
+        "modal interaction chain creation failed",
+    )
+    stages = chain.chain_stages(target)
+    controllers = tuple(
+        deform.find_controller(target, stage) for stage in stages)
+    check(len(stages) == 3 and all(controllers),
+          "modal interaction chain is incomplete")
+    deform.core.flush_pending_chain_updates(target)
+    chain_uuid = chain.stage_chain_uuid(stages[0])
+    original = tuple(
+        float(controller.sdh_cage_deform.bend_strength)
+        for controller in controllers)
+
+    def edit(index, delta):
+        before = tuple(controllers[index + 1].location) if index < 2 else None
+        deform.core._CHAIN_RECONNECT_QUEUE.clear()
+        deform.core.begin_chain_interaction(target, chain_uuid)
+        try:
+            properties = controllers[index].sdh_cage_deform
+            properties.bend_strength = original[index] + delta
+            check(not deform.core._CHAIN_RECONNECT_QUEUE,
+                  f"modal stage {index} left a deferred reconnect")
+            bpy.context.view_layer.update()
+        finally:
+            deform.core.end_chain_interaction(target, chain_uuid)
+        if before is None:
+            return 0.0
+        return (Vector(controllers[index + 1].location) - Vector(before)).length
+
+    root_motion = edit(0, math.radians(11.0))
+    middle_motion = edit(1, math.radians(-8.0))
+    tip_motion = edit(2, math.radians(6.0))
+    check(root_motion > 1.0e-4,
+          "root modal edit did not update its downstream frame")
+    check(middle_motion > 1.0e-4,
+          "middle modal edit did not update its downstream frame")
+    check(tip_motion == 0.0,
+          "tip modal edit unexpectedly moved a downstream frame")
+    check(not deform.core._CHAIN_INTERACTIONS,
+          "modal chain interaction marker was not released")
+
+    # Restore authored values through the same guarded path so this case does
+    # not leave a queued request for the following regression cases.
+    deform.core.begin_chain_interaction(target, chain_uuid)
+    try:
+        for controller, value in zip(controllers, original):
+            controller.sdh_cage_deform.bend_strength = value
+    finally:
+        deform.core.end_chain_interaction(target, chain_uuid)
+    deform.core.flush_pending_chain_updates(target)
+    return (round(root_motion, 6), round(middle_motion, 6))
+
+
+case("modal_interaction_coalesces_reconnect",
+     modal_interaction_coalesces_reconnect)
+
+
+def modal_interaction_failure_keeps_deferred_fallback():
+    """A failed inline reconnect must leave the normal safety queue intact."""
+    target = make_object(
+        "SDH Modal Interaction Failure",
+        ((-0.7, -2.5, -0.4), (0.7, -2.5, 0.4),
+         (-0.7, 2.5, 0.4), (0.7, 2.5, -0.4)),
+    )
+    check(
+        bpy.ops.sdh.add_cage_chain(
+            count=2,
+            connection_mode="CHAINED",
+            gap=0.1,
+            auto_reconnect=True,
+            alignment="POS_Y",
+            origin="BOTTOM",
+        ) == {"FINISHED"},
+        "modal failure chain creation failed",
+    )
+    stages = chain.chain_stages(target)
+    controllers = tuple(
+        deform.find_controller(target, stage) for stage in stages)
+    check(len(stages) == 2 and all(controllers),
+          "modal failure chain is incomplete")
+    deform.core.flush_pending_chain_updates(target)
+    chain_uuid = chain.stage_chain_uuid(stages[0])
+    original = float(controllers[0].sdh_cage_deform.bend_strength)
+    original_reconnect = chain.reconnect_chain
+    calls = []
+
+    def failed_reconnect(*args, **kwargs):
+        calls.append(True)
+        raise RuntimeError("synthetic inline reconnect failure")
+
+    chain.reconnect_chain = failed_reconnect
+    deform.core._CHAIN_RECONNECT_QUEUE.clear()
+    deform.core.begin_chain_interaction(target, chain_uuid)
+    try:
+        controllers[0].sdh_cage_deform.bend_strength = original + math.radians(5.0)
+    finally:
+        deform.core.end_chain_interaction(target, chain_uuid)
+    chain.reconnect_chain = original_reconnect
+    check(calls, "inline reconnect failure fixture was not exercised")
+    check(bool(deform.core._CHAIN_RECONNECT_QUEUE),
+          "failed inline reconnect did not preserve deferred fallback")
+    deform.core._CHAIN_RECONNECT_QUEUE.clear()
+    controllers[0].sdh_cage_deform.bend_strength = original
+    deform.core.flush_pending_chain_updates(target)
+
+    # A successful no-op is still a handled transaction. It must not be
+    # mistaken for a failure merely because no downstream transform changed.
+    def handled_noop(*args, **kwargs):
+        calls.append(True)
+        return 0
+
+    chain.reconnect_chain = handled_noop
+    deform.core.begin_chain_interaction(target, chain_uuid)
+    try:
+        controllers[0].sdh_cage_deform.bend_strength = original + math.radians(2.0)
+    finally:
+        deform.core.end_chain_interaction(target, chain_uuid)
+    chain.reconnect_chain = original_reconnect
+    check(not deform.core._CHAIN_RECONNECT_QUEUE,
+          "handled zero-update reconnect incorrectly queued a fallback")
+    deform.core._CHAIN_RECONNECT_QUEUE.clear()
+    controllers[0].sdh_cage_deform.bend_strength = original
+    deform.core.flush_pending_chain_updates(target)
+    return len(calls)
+
+
+case("modal_interaction_failure_keeps_deferred_fallback",
+     modal_interaction_failure_keeps_deferred_fallback)
+
+
 try:
     addon.unregister()
     check(not hasattr(bpy.types.Object, "sdh_cage_deform"),

@@ -1,3 +1,23 @@
+# Simple Deform Helper 2.7.56
+
+## Multi-Object Merge Selection
+
+- Kept an existing Deform Merge active and selected after adding a cage,
+  creating a chained cage, or subdividing a cage into chained stages.
+- Selected every related cage controller as a secondary object so the cage,
+  Timeline channels, and viewport controls remain immediately available.
+- Covered Standard, Shear, and FFD direct-chain and subdivision workflows on
+  Blender 5.0.1 and Blender 5.2.0 LTS.
+
+## Chained Cage Interaction Performance
+
+- Coalesced modal controller edits into one chain transaction so downstream
+  frames are updated inline without leaving a redundant reconnect timer.
+- Reused unchanged affine prefixes and incrementally propagated Standard chain
+  boundary edits; FFD and Curve chains retain the conservative fallback path.
+- Frozen the structural preview plan during end-scale drags and updated only
+  the changing end profiles, reducing repeated viewport evaluation work.
+
 # Simple Deform Helper 2.7.55
 
 ## Faster Geometry Nodes Startup

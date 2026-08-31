@@ -928,7 +928,21 @@ def sync_chain_shared_end_scale(
     should_propagate = bool(
         propagate and chain_auto_reconnect(target, chain_uuid, True))
 
+    # During an end-shape Gizmo drag the source and its shared peer are pushed
+    # immediately by ``apply_scale``.  Re-solving every downstream affine
+    # frame for each mouse sample is the dominant source of hitching on long
+    # chains; retain the earliest dirty index and solve the suffix once at
+    # modal exit.  Direct RNA/panel edits (and non-modal scripts) continue to
+    # use the synchronous path below, so they never expose deferred state.
+    interaction_active = bool(_call(
+        "chain_interaction_active", target, chain_uuid, default=False))
+    mark_dirty = getattr(core, "mark_chain_interaction_dirty", None)
+
     if should_propagate:
+        if interaction_active and callable(mark_dirty):
+            apply_scale()
+            mark_dirty(target, chain_uuid, dirty_index)
+            return True
         transaction = getattr(core, "chain_reconnect_transaction", None)
         if transaction is None:
             apply_scale()
@@ -1934,7 +1948,6 @@ def reconnect_chain(
     stages = tuple(report["stages"])
     if len(stages) < 2:
         return 0
-    _call("invalidate_chain_affine_cache", target)
     # Chain indices describe physical segments. Restore them after a native
     # modifier drag instead of promoting an arbitrary middle cage to the root.
     recoverable_stack_reorder = bool(
@@ -1972,6 +1985,15 @@ def reconnect_chain(
         start_index = 0
     if report["broken"]:
         start_index = 0
+    # Preserve cached prefixes before the first changed stage.  A long chain
+    # only needs to resample the affected suffix; clearing the whole target on
+    # every mouse sample made otherwise unchanged upstream frames expensive
+    # to rebuild.
+    _call(
+        "invalidate_chain_affine_cache",
+        target,
+        start_index=start_index,
+    )
     if sync is not None and root_controller is not None and start_index == 0:
         sync(root_controller, pull_transform=False)
     source_frame_mode = bool(
@@ -2029,7 +2051,11 @@ def reconnect_chain(
             else:
                 endpoint, x_axis, y_axis, z_axis = _stage_top_frame(
                     target, previous_controller, extension=gap,
-                    chain_through_current=boundary_through_current)
+                    # The next stage only needs the cumulative deformation
+                    # through the current predecessor.  Excluding unrelated
+                    # downstream stages avoids rebuilding their display plan
+                    # for every seam in a long interactive chain.
+                    chain_through_current=True)
                 _set_controller_frame(
                     target, current_controller, endpoint, x_axis, y_axis,
                     z_axis, gap=0.0)
@@ -2390,6 +2416,62 @@ def _assign_boundary_record(record):
             syncing.discard(pointer)
 
 
+def _boundary_fast_path_eligible(records):
+    """Return whether a modal boundary edit can use incremental propagation.
+
+    The incremental path relies on the standard cage's boundary move being
+    local in controller space.  FFD and Curve stages have additional authored
+    geometry/guide relations, so keep their conservative snapshot path until
+    those relations can be updated independently.
+    """
+    try:
+        return bool(records) and all(
+            str(getattr(record["controller"].sdh_cage_deform,
+                       "cage_type", "STANDARD")).upper() == "STANDARD"
+            for record in records
+        )
+    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+        return False
+
+
+def _boundary_state_topology_matches(target, records, chain_uuid=""):
+    """Reject a modal edit when its captured chain was reordered or changed."""
+    if target is None or not records:
+        return False
+    try:
+        live_modifiers = tuple(getattr(target, "modifiers", ()) or ())
+        captured_pointers = tuple(
+            _pointer(record.get("modifier")) for record in records)
+        if not captured_pointers or any(not pointer
+                                       for pointer in captured_pointers):
+            return False
+        captured_set = set(captured_pointers)
+        # Preserve modifier-stack order.  A membership-only check would let a
+        # native reorder through and then reconnect the wrong seam while the
+        # modal snapshot still describes the previous physical chain.
+        live_captured = tuple(
+            pointer for modifier in live_modifiers
+            for pointer in (_pointer(modifier),)
+            if pointer in captured_set
+        )
+        if live_captured != captured_pointers:
+            return False
+        if chain_uuid:
+            # Also reject an inserted/removed stage carrying the same chain
+            # UUID.  Non-cage modifiers and independent cages have no match,
+            # so this remains a small metadata scan over the live stack.
+            live_chain = tuple(
+                pointer for modifier in live_modifiers
+                for pointer in (_pointer(modifier),)
+                if pointer and stage_chain_uuid(modifier) == str(chain_uuid)
+            )
+            if live_chain != captured_pointers:
+                return False
+        return True
+    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+        return False
+
+
 def apply_shared_boundary_edit(state, axis_delta, boundary_mode="SINGLE"):
     """Edit a chain boundary while preserving frames and non-negative gaps.
 
@@ -2413,13 +2495,24 @@ def apply_shared_boundary_edit(state, axis_delta, boundary_mode="SINGLE"):
             active_index < 0 or active_index >= len(records)
     ):
         return None
-    live_stages = chain_stages(target, chain_uuid)
-    if (
-            len(live_stages) != len(records) or
-            any(stage != record["modifier"]
-                for stage, record in zip(live_stages, records))
-    ):
-        return None
+    interaction_active = bool(_call(
+        "chain_interaction_active", target, chain_uuid, default=False))
+    if interaction_active:
+        # A full metadata walk is needed when the modal snapshot is first
+        # created; subsequent samples only need to know that the captured
+        # modifiers are still alive.  This avoids repeatedly decoding every
+        # chain owner while a pointer is moving, while still cancelling safely
+        # if a stage is removed.
+        if not _boundary_state_topology_matches(target, records, chain_uuid):
+            return None
+    else:
+        live_stages = chain_stages(target, chain_uuid)
+        if (
+                len(live_stages) != len(records) or
+                any(stage != record["modifier"]
+                    for stage, record in zip(live_stages, records))
+        ):
+            return None
 
     stage_count = len(records)
     upstream_index = active_index if side == "TOP" else active_index - 1
@@ -2489,9 +2582,122 @@ def apply_shared_boundary_edit(state, axis_delta, boundary_mode="SINGLE"):
         move_controller = active_controller
         move_side = side
 
+    # A boundary Gizmo reports an absolute delta from its invoke position.
+    # During a modal drag, rebase only the stage whose boundary is being moved
+    # and reconnect the affected suffix.  The old implementation restored all
+    # stage snapshots and solved the complete chain for every mouse event,
+    # which made an 8-stage boundary drag approach 100 ms per sample.  Keeping
+    # the participant on the immutable snapshot avoids cumulative float drift
+    # when the pointer reverses direction during one drag.
+    fast_boundary = bool(
+        interaction_active and
+        _boundary_fast_path_eligible(records))
     with transaction(target, chain_uuid) as commit:
-        # Rebase the participant before every modal sample.  This keeps the
-        # result independent of event rate and avoids cumulative float drift.
+        if fast_boundary:
+            # Rebase only the participant.  Downstream frames are regenerated
+            # by the suffix reconnect below, while upstream stages remain
+            # untouched by this boundary edit.  The participant is restored on
+            # every sample because the mouse delta is absolute, not relative.
+            if boundary_mode == "SINGLE":
+                participant = upstream if side == "TOP" else downstream
+                _assign_boundary_record(participant)
+            elif boundary_mode == "SYMMETRIC" or active_index == 0:
+                _assign_boundary_record(active_record)
+            if boundary_mode == "SINGLE":
+                applied_step, _new_length = move_boundary(
+                    move_controller,
+                    move_side, applied,
+                    (upstream if side == "TOP" else downstream)["size"],
+                    (upstream if side == "TOP" else downstream)["location"],
+                    None,
+                )
+            elif boundary_mode == "TRANSLATE":
+                if active_index == 0:
+                    applied_step, _new_length = move_boundary(
+                        active_controller, move_side, applied,
+                        active_record["size"], active_record["location"],
+                        None, boundary_mode="TRANSLATE")
+                else:
+                    applied_step = applied
+                    _new_length = active_length
+            else:
+                applied_step, _new_length = move_boundary(
+                    active_controller, move_side, applied,
+                    active_record["size"], active_record["location"],
+                    None, boundary_mode="SYMMETRIC")
+
+            # Anchor gap mirrors to the actual cumulative movement.  The core
+            # mover may clamp a step at the minimum cage length or a boundary
+            # limit, so using the requested delta here could desynchronise the
+            # seam by one sample.
+            applied = float(applied_step)
+            if boundary_mode == "SINGLE":
+                next_gap = (
+                    current_gap - applied if side == "TOP" else
+                    current_gap + applied)
+                _write_stage_gap(
+                    downstream["modifier"], downstream["controller"],
+                    next_gap)
+            elif boundary_mode == "TRANSLATE":
+                next_gap = (
+                    gaps[active_index] + applied
+                    if active_index > 0 else gaps[active_index])
+                if active_index > 0:
+                    _write_stage_gap(
+                        records[active_index]["modifier"],
+                        records[active_index]["controller"], next_gap)
+                if active_index + 1 < stage_count:
+                    _write_stage_gap(
+                        records[active_index + 1]["modifier"],
+                        records[active_index + 1]["controller"],
+                        gaps[active_index + 1] - applied)
+            else:
+                q_applied = (1.0 if side == "TOP" else -1.0) * applied
+                next_gap = (
+                    gaps[active_index] - q_applied
+                    if active_index > 0 else gaps[active_index])
+                if active_index > 0:
+                    _write_stage_gap(
+                        records[active_index]["modifier"],
+                        records[active_index]["controller"], next_gap)
+                if active_index + 1 < stage_count:
+                    _write_stage_gap(
+                        records[active_index + 1]["modifier"],
+                        records[active_index + 1]["controller"],
+                        gaps[active_index + 1] - q_applied)
+
+            # A top edit changes the stage at ``upstream_index``; a bottom
+            # edit changes its downstream participant, whose frame is derived
+            # from the preceding stage. Translation/symmetric edits use the
+            # same preceding-stage boundary for interior stages.
+            if boundary_mode == "SINGLE":
+                reconnect_start = (
+                    max(upstream_index - 1, 0) if side == "TOP" else
+                    max(upstream_index, 0))
+            else:
+                reconnect_start = 0 if active_index == 0 else active_index - 1
+            reconnect_chain(
+                target,
+                chain_uuid,
+                start_index=reconnect_start,
+                runtime_only=True,
+            )
+            try:
+                target.update_tag()
+            except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                pass
+            commit()
+            return {
+                "applied_delta": float(applied),
+                "active_length": float(
+                    active_controller.sdh_cage_deform.size[1]),
+                "gap": float(next_gap),
+                "upstream_index": upstream_index,
+                "downstream_index": upstream_index + 1,
+            }
+
+        # Conservative path: rebase every participant before each modal sample
+        # so Curve/FFD relations and unusual external edits remain exact.
         for record in records:
             _assign_boundary_record(record)
         if boundary_mode == "SINGLE":
@@ -3186,10 +3392,19 @@ def _subdivide_ffd_cage_to_chain(context, target, source_modifier,
         if show_all is not None:
             show_all(target, True)
         target.modifiers.active = source_modifier
-        _activate(context, source_controller)
-        refresh = getattr(core, "refresh_controller_display", None)
-        if refresh is not None:
-            refresh(context, force=True)
+        if _call("_is_deform_merge_target", target, default=False):
+            _call(
+                "_activate_created_cage_stage",
+                context,
+                target,
+                source_controller,
+                "FFD",
+            )
+        else:
+            _activate(context, source_controller)
+            refresh = getattr(core, "refresh_controller_display", None)
+            if refresh is not None:
+                refresh(context, force=True)
         operator.report(
             {"INFO"},
             iface_("Subdivided FFD cage into {count} chained stages").format(
@@ -3855,6 +4070,14 @@ class SDH_OT_add_cage_chain(Operator):
             )
             if tool_action is not None:
                 tool_action(context)
+            if _call("_is_deform_merge_target", target, default=False):
+                _call(
+                    "_activate_created_cage_stage",
+                    context,
+                    target,
+                    created[0][1],
+                    requested_cage_type,
+                )
             if getattr(context, "area", None):
                 context.area.tag_redraw()
             self.report(
@@ -4758,10 +4981,19 @@ class SDH_OT_subdivide_cage_to_chain(Operator):
             if show_all is not None:
                 show_all(target, True)
             target.modifiers.active = source_modifier
-            _activate(context, source_controller)
-            refresh = getattr(core, "refresh_controller_display", None)
-            if refresh is not None:
-                refresh(context, force=True)
+            if _call("_is_deform_merge_target", target, default=False):
+                _call(
+                    "_activate_created_cage_stage",
+                    context,
+                    target,
+                    source_controller,
+                    getattr(source_properties, "cage_type", "STANDARD"),
+                )
+            else:
+                _activate(context, source_controller)
+                refresh = getattr(core, "refresh_controller_display", None)
+                if refresh is not None:
+                    refresh(context, force=True)
             if gap_was_adjusted:
                 message = iface_(
                     "Subdivided cage into {count} chained stages "
