@@ -213,8 +213,9 @@ def legacy_controller_selection_fallback():
               "legacy named Empty was not matched to its stage")
         core._SELECTION_SYNC_SIGNATURE = None
         core._selection_sync_notify()
-        check(core._selection_watch_timer() == core._SELECTION_WATCH_INTERVAL,
-              "selection fallback watcher did not remain active")
+        check(bpy.app.timers.is_registered(core._selection_watch_timer),
+              "selection change did not schedule reconciliation")
+        core._selection_watch_timer()
         # A previous stage click can leave one deferred selection-repair pass.
         # Drain it before checking the ordinary target-to-controller watcher.
         core._selection_sync_timer()

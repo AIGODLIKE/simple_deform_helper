@@ -153,12 +153,12 @@ def run_test():
             try:
                 addon.unregister()
             except Exception:
-                result += "\nUNREGISTER FAIL\n" + traceback.format_exc()
+                result = "FAIL: UNREGISTER\n" + traceback.format_exc() + "\n" + result
         if addon_entry is not None:
             try:
                 bpy.context.preferences.addons.remove(addon_entry)
             except Exception:
-                result += "\nPREFERENCES CLEANUP FAIL\n" + traceback.format_exc()
+                result = "FAIL: PREFERENCES CLEANUP\n" + traceback.format_exc() + "\n" + result
         RESULT.write_text(result, encoding="utf-8")
         print(f"SDH::GUI_UNDO::{result.splitlines()[0]}")
         bpy.ops.wm.quit_blender()

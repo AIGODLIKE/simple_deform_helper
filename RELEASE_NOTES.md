@@ -1,3 +1,45 @@
+# Simple Deform Helper 2.7.57
+
+## Review Follow-up
+
+- Synchronized all downstream chain frames when editing shared Twist/Bend
+  prefixes, keeping the evaluated mesh aligned with the live cage preview.
+- Replaced continuous selection polling with coalesced, event-triggered
+  synchronization and bounded workspace-tool confirmation.
+- Added native-keymap operator names for UI buttons while preserving existing
+  script and shortcut identifiers.
+- Removed redo-panel registration from preset save/delete operations so F9
+  cannot repeat their filesystem changes.
+- Corrected preset-deletion reports to retain the deleted preset's name.
+- Established an undo boundary when entering Native FFD Edit, preserving the
+  edit session when undoing and redoing its first lattice transform.
+- Reused an owned, hidden native-edit companion across mode changes so undo
+  can restore an exited session; cleaned it on stage removal, reload and disable.
+- Added a public issue-tracker link to extension preferences.
+- Cleaned existing lint findings and added lint plus Windows/macOS validation
+  jobs alongside the Linux workflow, with isolated multi-window GUI coverage.
+
+## Legacy Deformation Reliability
+
+- Restored traditional Simple Deform message-bus subscriptions after opening
+  a file, keeping managed Origins responsive to limit and axis changes.
+- Made subscription registration idempotent and removed the load callback,
+  subscriptions, and cached method state when disabling the extension.
+- Fixed No origin operation for Lattice targets whose managed Origin is
+  intentionally unparented; restored the original Origin without deleting
+  user-owned or shared helpers.
+
+## Legacy Cage Animation Migration
+
+- Migrated old cage Action slots, NLA strips, and drivers to the current
+  property paths, including the dedicated Bend angle and direction inputs.
+- Updated driver variables referencing the controller's own legacy properties
+  so those dependent channels keep evaluating after migration.
+- Preserved other objects' Action slots and isolated shared slots before
+  migrating paths, so unrelated animation remains unchanged.
+- Added regression coverage for file reload, Origin ownership, shared Actions,
+  and playback after migrating prototype cages.
+
 # Simple Deform Helper 2.7.56
 
 ## Multi-Object Merge Selection

@@ -1,8 +1,10 @@
 import bpy
+from bpy.app.handlers import persistent
 
 from .utils import GizmoUtils, PublicData
 
 owner = object()
+_registered = False
 
 remember_deform_method = {}
 
@@ -46,21 +48,44 @@ def modify_deform_frame():
     _refresh_managed_origin()
 
 
-def register():
-    bpy.msgbus.subscribe_rna(
-        key=(bpy.types.SimpleDeformModifier, "deform_method"),
-        owner=owner,
-        args=(),
-        notify=modify_deform_method,
-    )
-    for property_name in ("deform_axis", "limits"):
+def _subscribe():
+    bpy.msgbus.clear_by_owner(owner)
+    for property_name, callback in (
+            ("deform_method", modify_deform_method),
+            ("deform_axis", modify_deform_frame),
+            ("limits", modify_deform_frame)):
         bpy.msgbus.subscribe_rna(
             key=(bpy.types.SimpleDeformModifier, property_name),
             owner=owner,
             args=(),
-            notify=modify_deform_frame,
+            notify=callback,
         )
 
+
+@persistent
+def _load_post(_unused):
+    if not _registered:
+        return
+    remember_deform_method.clear()
+    _subscribe()
+
+
+def register():
+    global _registered
+    try:
+        _subscribe()
+        if _load_post not in bpy.app.handlers.load_post:
+            bpy.app.handlers.load_post.append(_load_post)
+        _registered = True
+    except Exception:
+        unregister()
+        raise
+
+
 def unregister():
+    global _registered
+    _registered = False
+    while _load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_load_post)
     bpy.msgbus.clear_by_owner(owner)
     remember_deform_method.clear()

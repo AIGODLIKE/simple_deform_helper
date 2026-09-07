@@ -11,6 +11,61 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install ruff==0.15.20
+      - run: ruff check .
+
+  windows-macos:
+    name: Blender ${{ matrix.version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+        version: [5.0.0, 5.2.0]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Download Blender for Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = '${{ matrix.version }}'
+          $series = $version.Substring(0, 3)
+          $archive = Join-Path $env:RUNNER_TEMP 'blender.zip'
+          Invoke-WebRequest "https://download.blender.org/release/Blender$series/blender-$version-windows-x64.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $env:RUNNER_TEMP 'blender')
+          $exe = Join-Path $env:RUNNER_TEMP "blender/blender-$version-windows-x64/blender.exe"
+          "BLENDER_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Download Blender for macOS ARM64
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          version='${{ matrix.version }}'
+          series="${version%.*}"
+          curl --fail --location --retry 3 "https://download.blender.org/release/Blender${series}/blender-${version}-macos-arm64.dmg" --output "$RUNNER_TEMP/blender.dmg"
+          mkdir -p "$RUNNER_TEMP/blender-mount" "$RUNNER_TEMP/blender"
+          hdiutil attach "$RUNNER_TEMP/blender.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/blender-mount"
+          trap 'hdiutil detach "$RUNNER_TEMP/blender-mount"' EXIT
+          ditto "$RUNNER_TEMP/blender-mount/Blender.app" "$RUNNER_TEMP/blender/Blender.app"
+          echo "BLENDER_EXE=$RUNNER_TEMP/blender/Blender.app/Contents/MacOS/Blender" >> "$GITHUB_ENV"
+      - name: Validate source, regressions and installed archive
+        shell: bash
+        run: python tests/platform_release_smoke.py --version '${{ matrix.version }}' --output "$RUNNER_TEMP/sdh-platform-results"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-${{ matrix.os }}-${{ matrix.version }}
+          path: ${{ runner.temp }}/sdh-platform-results
+
   supported-versions:
     name: Blender ${{ matrix.label }}
     runs-on: ubuntu-latest
@@ -71,6 +126,13 @@ jobs:
           --background --factory-startup --python-exit-code 1
           --python tests/cage_deform_regression.py
 
+      - name: Run legacy ownership and animation migration regressions
+        shell: bash
+        run: |
+          blender="${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/legacy_lattice_origin_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/legacy_animation_migration_regression.py
+
       - name: Run unified deformation stack regression
         run: >-
           "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
@@ -103,6 +165,7 @@ jobs:
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_chain_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_end_scale_scope_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_preview_evaluator_sync_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_prefix_parameter_sync_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/end_shape_drag_preview_freeze_regression.py
 
       - name: Run dedicated cage type regression
@@ -116,6 +179,12 @@ jobs:
           "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
           --background --factory-startup --python-exit-code 1
           --python tests/ffd_lattice_regression.py
+
+      - name: Run native FFD lifecycle regression
+        run: >-
+          "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender"
+          --background --factory-startup --python-exit-code 1
+          --python tests/ffd_native_edit_regression.py
 
       - name: Run chained Origin and gap regressions
         shell: bash
@@ -152,6 +221,35 @@ jobs:
           result="${RUNNER_TEMP}/sdh-gui-undo-${{ matrix.version }}.txt"
           xvfb-run -a "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender" --factory-startup --python tests/gui_undo_regression.py -- "$result"
           test "$(cat "$result")" = "PASS"
+
+      - name: Run review interaction regressions
+        shell: bash
+        run: |
+          xvfb-run -a python tests/platform_release_smoke.py \
+            --blender "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender" \
+            --version '${{ matrix.version }}' --output "$RUNNER_TEMP/sdh-review-gui" \
+            --gui-scripts native_shortcut_regression.py stack_preset_redo_regression.py \
+            multi_window_display_smoke.py gui_modal_control_undo_regression.py \
+            selection_event_runtime_regression.py ffd_native_undo_real_event_smoke.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: review-gui-linux-${{ matrix.version }}
+          path: ${{ runner.temp }}/sdh-review-gui
+
+      - name: Run legacy message-bus reload regression
+        shell: bash
+        env:
+          BLENDER_USER_CONFIG: ${{ runner.temp }}/legacy-bus-config-${{ matrix.version }}
+          BLENDER_USER_SCRIPTS: ${{ runner.temp }}/legacy-bus-scripts-${{ matrix.version }}
+          BLENDER_USER_EXTENSIONS: ${{ runner.temp }}/legacy-bus-extensions-${{ matrix.version }}
+          BLENDER_USER_DATAFILES: ${{ runner.temp }}/legacy-bus-datafiles-${{ matrix.version }}
+        run: |
+          mkdir -p "$BLENDER_USER_CONFIG" "$BLENDER_USER_SCRIPTS" "$BLENDER_USER_EXTENSIONS" "$BLENDER_USER_DATAFILES"
+          result="${RUNNER_TEMP}/legacy-bus-${{ matrix.version }}.txt"
+          xvfb-run -a "${RUNNER_TEMP}/blender-${{ matrix.version }}/blender" --factory-startup --python-exit-code 1 --python tests/legacy_msgbus_load_regression.py -- "$result"
+          grep -q '^PASS::LEGACY_MSGBUS_LOAD' "$result"
 
       - name: Run FFD maximum-grid Gizmo draw smoke
         shell: bash
@@ -231,6 +329,8 @@ jobs:
           python tests/create_cage_ui_contract.py
           "$blender" --command extension validate .
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/runtime_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/legacy_lattice_origin_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/legacy_animation_migration_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_deform_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/unified_deform_stack_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/deform_runtime_lifecycle_regression.py
@@ -240,9 +340,11 @@ jobs:
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_chain_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_end_scale_scope_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_preview_evaluator_sync_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/chain_prefix_parameter_sync_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/end_shape_drag_preview_freeze_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/cage_type_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/ffd_lattice_regression.py
+          "$blender" --background --factory-startup --python-exit-code 1 --python tests/ffd_native_edit_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/deform_merge_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/registration_conflict_regression.py
           "$blender" --background --factory-startup --python-exit-code 1 --python tests/translation_locale_contract.py

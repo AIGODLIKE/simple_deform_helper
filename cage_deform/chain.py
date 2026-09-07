@@ -2032,7 +2032,6 @@ def reconnect_chain(
         except (TypeError, ValueError):
             transform_end_index = len(stages) - 1
         for index in range(start_index, transform_end_index):
-            previous = stages[index]
             current = stages[index + 1]
             previous_controller = controllers[index]
             current_controller = controllers[index + 1]

@@ -5,6 +5,7 @@ from bpy.types import Panel, VIEW3D_HT_tool_header
 from ..utils import GizmoUtils, get_pref
 from ..stages import StageCache
 from ..ops.stage import SimpleDeformStageCycle
+from ..operator_aliases import native_operator_idname
 
 
 _class_registered = False
@@ -49,7 +50,7 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
             if stage_count > 1:
                 stage_row = layout.row(align=True)
                 previous = stage_row.operator(
-                    SimpleDeformStageCycle.bl_idname,
+                    native_operator_idname(SimpleDeformStageCycle.bl_idname),
                     text="", icon="TRIA_LEFT")
                 previous.direction = "PREVIOUS"
                 stage_row.label(
@@ -58,7 +59,7 @@ class SimpleDeformHelperToolHeader(Panel, GizmoUtils):
                         stage_count=stage_count,
                     ))
                 following = stage_row.operator(
-                    SimpleDeformStageCycle.bl_idname,
+                    native_operator_idname(SimpleDeformStageCycle.bl_idname),
                     text="", icon="TRIA_RIGHT")
                 following.direction = "NEXT"
 

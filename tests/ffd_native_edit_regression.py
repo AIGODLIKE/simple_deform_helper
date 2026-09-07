@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 
@@ -102,10 +103,11 @@ try:
     deform.ffd_native_edit._watch_sessions()
     if properties.ffd_native_edit_mode_active:
         raise AssertionError("direct native-mode exit left the session active")
-    if proxy_name in bpy.data.objects:
-        raise AssertionError("native FFD edit proxy survived session exit")
-    if proxy_data_name in bpy.data.lattices:
-        raise AssertionError("native FFD edit proxy data survived session exit")
+    if (not deform.ffd_native_edit.owns_native_edit_proxy(lattice) or
+            not lattice.hide_get() or not lattice.hide_select or lattice.mode != "OBJECT"):
+        raise AssertionError("native FFD companion did not enter hidden standby")
+    if bpy.app.timers.is_registered(deform.ffd_native_edit._watch_sessions):
+        raise AssertionError("native FFD idle companion retained its timer")
     if not runtime.hide_get() or not runtime.hide_select:
         raise AssertionError("native FFD runtime helper did not stay hidden")
     if bpy.context.view_layer.objects.active != target:
@@ -124,6 +126,8 @@ try:
         raise AssertionError("zero-weight native FFD edit proxy is unavailable")
     zero_proxy_name = zero_proxy.name
     zero_proxy_data_name = zero_proxy.data.name
+    if zero_proxy_name != proxy_name or zero_proxy_data_name != proxy_data_name:
+        raise AssertionError("native FFD did not reuse its standby companion")
     if bpy.ops.transform.translate(
             value=(0.1, 0.0, 0.0), orient_type="LOCAL") != {"FINISHED"}:
         raise AssertionError("zero-weight native Lattice transform failed")
@@ -137,11 +141,8 @@ try:
     deform.ffd_native_edit._watch_sessions()
     if properties.ffd_native_edit_mode_active:
         raise AssertionError("zero-weight native FFD session did not finalize")
-    if (
-            zero_proxy_name in bpy.data.objects or
-            zero_proxy_data_name in bpy.data.lattices
-    ):
-        raise AssertionError("zero-weight native FFD proxy was not cleaned up")
+    if not zero_proxy.hide_get() or deform.ffd_native_edit._SESSIONS:
+        raise AssertionError("zero-weight native FFD companion did not stop editing")
 
     stale_data = bpy.data.lattices.new("SDH Stale Native Edit Data")
     stale_proxy = bpy.data.objects.new("SDH Stale Native Edit", stale_data)
@@ -162,6 +163,27 @@ try:
     target.modifiers.active = modifier
     if bpy.ops.sdh.edit_ffd_native() != {"CANCELLED"}:
         raise AssertionError("Unlimited FFD unexpectedly entered native edit")
+    target.modifiers.remove(modifier)
+    deform.core.cleanup_orphan_deform_helpers()
+    if proxy_name in bpy.data.objects or proxy_data_name in bpy.data.lattices:
+        raise AssertionError("removed FFD stage left its native companion")
+
+    modifier, controller, _previous = deform.create_deform_stage(
+        bpy.context, target, cage_type="FFD")
+    if bpy.ops.sdh.edit_ffd_native() != {"FINISHED"}:
+        raise AssertionError("native FFD reload fixture did not enter edit")
+    reloaded_proxy = deform.ffd_native_edit.native_edit_lattice(controller)
+    reloaded_name = reloaded_proxy.name
+    reloaded_data = reloaded_proxy.data.name
+    bpy.ops.object.mode_set(mode="OBJECT")
+    deform.ffd_native_edit._watch_sessions()
+    with tempfile.TemporaryDirectory(prefix="sdh-native-reload-") as reload_directory:
+        reload_path = Path(reload_directory) / "native-standby.blend"
+        bpy.ops.wm.save_as_mainfile(filepath=str(reload_path))
+        bpy.ops.wm.open_mainfile(filepath=str(reload_path))
+        deform.core._runtime_bootstrap_timer()
+    if reloaded_name in bpy.data.objects or reloaded_data in bpy.data.lattices:
+        raise AssertionError("saved native FFD companion survived reload cleanup")
     print("PASS::FFD_NATIVE_EDIT")
     success = True
 except Exception:

@@ -5,8 +5,7 @@ import hashlib
 import math
 import time
 import uuid
-from array import array
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
@@ -22,6 +21,8 @@ from bpy.props import (
 from bpy.types import Operator, PropertyGroup, WorkSpaceTool
 from mathutils import Euler, Matrix, Quaternion, Vector
 
+from . import deform_math as _deform_math
+from . import node_graph as _node_graph
 from .curve import SDHCurvePoint, SDHCurveStation
 from .deform_contract import (  # noqa: F401 - compatibility exports
     CHAIN_BOUNDARY_EPSILON,
@@ -931,6 +932,9 @@ _TARGET_OWNERSHIP_REPAIRING = set()
 _SELECTION_SYNC_MSG_OWNER = object()
 _SELECTION_SYNC_SIGNATURE = None
 _SELECTION_SYNC_DIRTY = False
+_SELECTION_DRAW_HANDLERS = []
+_SELECTION_WINDOW_SIGNATURES = {}
+_SELECTION_PENDING_WINDOWS = {}
 _WORKSPACE_TOOL_CONFIRMATIONS = {}
 # Preserve an intentional native-tool choice while the selected cage remains
 # unchanged. The selection signature invalidates this entry automatically.
@@ -940,7 +944,7 @@ _WORKSPACE_TOOL_CONFIRM_PASSES = 2
 # intended target for two event-loop passes so that pass cannot leave the
 # target active-but-unselected (the N-panel treats that as no target).
 _PENDING_STAGE_SELECTION_RESTORE = None
-_SELECTION_WATCH_INTERVAL = 0.12
+_SELECTION_CONFIRM_INTERVAL = 0.05
 _ORPHAN_HELPER_OBJECT_COUNT = -1
 _ORPHAN_HELPER_CLEANUP_RUNNING = False
 _RELATIONSHIP_OVERLAY_STATES = {}
@@ -2188,8 +2192,6 @@ def set_modifier_input(modifier, name, value):
     return True
 
 
-from . import node_graph as _node_graph
-
 _feed = _node_graph._feed
 _socket_by_type = _node_graph._socket_by_type
 _deform_order_link_pairs = _node_graph._deform_order_link_pairs
@@ -2287,8 +2289,6 @@ def create_stage_node_group(template=None):
     node_group[MODIFIER_UUID] = stage_uuid
     return node_group
 
-
-from . import deform_math as _deform_math
 
 normalized_ffd_offsets = _deform_math.normalized_ffd_offsets
 deform_point_local = _deform_math.deform_point_local
@@ -3103,6 +3103,15 @@ def sync_chain_global_prefix_from_stage(controller, operation, value):
 
     if changed:
         invalidate_chain_domain_cache()
+        # A shared prefix changes every stage's conjugation frame, including
+        # stages before the edited handle. Commit those GN inputs together
+        # with the new baseline before the next dependency-graph evaluation.
+        with chain_reconnect_transaction(target, chain_uuid) as commit:
+            chain_module.reconnect_chain(
+                target, chain_uuid, start_index=0,
+                update_transforms=chain_module.chain_auto_reconnect(
+                    target, chain_uuid, True))
+            commit()
         target.update_tag()
         _tag_view3d_redraw()
     return True
@@ -5872,7 +5881,7 @@ def reconnect_chain_interaction(controller, target=None, modifier=None):
             return False
         transaction = chain_reconnect_transaction
         with transaction(target, chain_uuid) as commit:
-            updated = chain_module.reconnect_chain(
+            chain_module.reconnect_chain(
                 target,
                 chain_uuid,
                 start_index=pending,
@@ -12659,12 +12668,65 @@ def _migrate_animation_paths(controller, old_property):
         return
     old_prefix = old_property + "."
     new_prefix = "sdh_cage_deform."
-    action = getattr(animation_data, "action", None)
-    curves = tuple(getattr(action, "fcurves", ())) if action else ()
-    curves += tuple(getattr(animation_data, "drivers", ()))
-    for curve in curves:
-        if old_prefix in curve.data_path:
-            curve.data_path = curve.data_path.replace(old_prefix, new_prefix)
+
+    def migrate_path(owner):
+        if owner.data_path.startswith(old_prefix):
+            suffix = owner.data_path[len(old_prefix):]
+            # Prototype cages were Bend-only; animate the dedicated inputs,
+            # since compatibility aliases are overwritten during frame sync.
+            suffix = {
+                "strength": "bend_strength", "direction": "bend_direction",
+            }.get(suffix, suffix)
+            owner.data_path = new_prefix + suffix
+
+    def slot_curves(binding):
+        action = getattr(binding, "action", None)
+        if action is None:
+            return
+        slot = getattr(binding, "action_slot", None)
+        if slot is None:
+            yield from getattr(action, "fcurves", ())
+            return
+        for layer in action.layers:
+            for strip in layer.strips:
+                channelbag = strip.channelbag(slot)
+                if channelbag is not None:
+                    yield from channelbag.fcurves
+
+    def nla_bindings(strips):
+        for strip in strips:
+            yield strip
+            yield from nla_bindings(strip.strips)
+
+    bindings = [animation_data]
+    for track in animation_data.nla_tracks:
+        bindings.extend(nla_bindings(track.strips))
+    copied_actions = {}
+    for binding in bindings:
+        curves = tuple(slot_curves(binding))
+        if not any(curve.data_path.startswith(old_prefix) for curve in curves):
+            continue
+        slot = getattr(binding, "action_slot", None)
+        if slot is not None and any(user != controller for user in slot.users()):
+            # A shared slot also drives another ID; preserve that user's paths.
+            action = binding.action
+            action_pointer = _pointer(action)
+            copied = copied_actions.get(action_pointer)
+            if copied is None:
+                copied = action.copy()
+                copied_actions[action_pointer] = copied
+            identifier = slot.identifier
+            binding.action = copied
+            binding.action_slot = copied.slots[identifier]
+            curves = tuple(slot_curves(binding))
+        for curve in curves:
+            migrate_path(curve)
+    for curve in animation_data.drivers:
+        migrate_path(curve)
+        for variable in curve.driver.variables:
+            for target in variable.targets:
+                if target.id == controller:
+                    migrate_path(target)
 
 
 def migrate_legacy_stages(context=None):
@@ -12979,7 +13041,8 @@ def _selection_sync_timer():
 
 
 def _selection_watch_timer():
-    """Fallback watcher for viewport selection paths without RNA notifications."""
+    """Reconcile one selection event, retrying only an unfinished hand-off."""
+    global _SELECTION_SYNC_SIGNATURE, _SELECTION_SYNC_DIRTY
     if not _RUNTIME_HANDLERS_REGISTERED:
         return None
     object_count_changed = _cleanup_orphans_after_object_count_change()
@@ -12997,41 +13060,74 @@ def _selection_watch_timer():
             refresh_controller_display(bpy.context, force=True)
             disable_runtime_handlers()
             return None
-    # Once an empty selection has been handed back to Blender, there is no
-    # cage state to reconcile on every watch tick.  The selection msgbus marks
-    # ``_SELECTION_SYNC_DIRTY`` when a real selection/active-object change
-    # arrives, so keep the 120 ms watcher cheap while the user is simply
-    # moving the pointer over an empty viewport.  This is especially important
-    # for macOS, where repeatedly switching tools or scanning a large chain can
-    # stall the main event loop without showing high CPU usage.
-    try:
-        selected_objects = tuple(
-            getattr(bpy.context, "selected_objects", ()) or ())
-        if (
-                not selected_objects and
-                not _SELECTION_SYNC_DIRTY and
-                _SELECTION_SYNC_SIGNATURE is not None and
-                len(_SELECTION_SYNC_SIGNATURE) > 5 and
-                not _SELECTION_SYNC_SIGNATURE[5]
-        ):
-            return _SELECTION_WATCH_INTERVAL
-    except (AttributeError, ReferenceError, RuntimeError, TypeError):
-        pass
-    _selection_sync_timer()
-    return _SELECTION_WATCH_INTERVAL
+    pending = tuple(_SELECTION_PENDING_WINDOWS.values())
+    _SELECTION_PENDING_WINDOWS.clear()
+    if not pending:
+        pending = ((getattr(bpy.context, "window", None), _SELECTION_SYNC_DIRTY),)
+    next_delay = None
+    for window, dirty in pending:
+        try:
+            override = (
+                bpy.context.temp_override(window=window)
+                if window is not None else nullcontext())
+            with override:
+                key = _pointer(window)
+                _SELECTION_SYNC_SIGNATURE = _SELECTION_WINDOW_SIGNATURES.get(key)
+                _SELECTION_SYNC_DIRTY = bool(_SELECTION_SYNC_DIRTY or dirty)
+                delay = _selection_sync_timer()
+                _SELECTION_WINDOW_SIGNATURES[key] = _SELECTION_SYNC_SIGNATURE
+                if _WORKSPACE_TOOL_CONFIRMATIONS.get(
+                        _workspace_tool_key(bpy.context)):
+                    delay = min(delay, _SELECTION_CONFIRM_INTERVAL) if (
+                        delay is not None) else _SELECTION_CONFIRM_INTERVAL
+                if delay is not None:
+                    _SELECTION_PENDING_WINDOWS.setdefault(key, (window, False))
+                    next_delay = min(next_delay, delay) if (
+                        next_delay is not None) else delay
+        except (AttributeError, ReferenceError, RuntimeError, TypeError):
+            _SELECTION_WINDOW_SIGNATURES.pop(_pointer(window), None)
+    if _SELECTION_PENDING_WINDOWS:
+        return next_delay if next_delay is not None else 0.0
+    return None
 
 
-def _selection_sync_notify():
+def _selection_sync_notify(*, dirty=True):
     """Defer selection synchronization out of Blender's RNA callback."""
     global _SELECTION_SYNC_DIRTY
     if not _RUNTIME_HANDLERS_REGISTERED:
         return
-    _SELECTION_SYNC_DIRTY = True
+    if dirty:
+        _SELECTION_SYNC_DIRTY = True
+    window = getattr(bpy.context, "window", None)
+    key = _pointer(window)
+    previous = _SELECTION_PENDING_WINDOWS.get(key)
+    _SELECTION_PENDING_WINDOWS[key] = (
+        window, bool(dirty or (previous is not None and previous[1])))
     try:
-        if not bpy.app.timers.is_registered(_selection_sync_timer):
-            bpy.app.timers.register(_selection_sync_timer, first_interval=0.0)
+        if not bpy.app.timers.is_registered(_selection_watch_timer):
+            bpy.app.timers.register(_selection_watch_timer, first_interval=0.0)
     except (AttributeError, RuntimeError, ValueError, TypeError):
         pass
+
+
+def _selection_rna_notify():
+    # Selecting helper controllers publishes a delayed active/selection event.
+    # Its final state was already reconciled; replaying it would select helpers
+    # again and create an endless notification loop.
+    if _selection_state_changed(bpy.context):
+        _selection_sync_notify()
+
+
+def _selection_state_changed(context):
+    key = _pointer(getattr(context, "window", None))
+    return _selection_signature(context) != _SELECTION_WINDOW_SIGNATURES.get(key)
+
+
+def _selection_redraw_notify():
+    # Native box selection can redraw without RNA or depsgraph notification.
+    # Never mutate Blender data during drawing; the timer owns reconciliation.
+    if _RUNTIME_HANDLERS_REGISTERED and _selection_state_changed(bpy.context):
+        _selection_sync_notify()
 
 
 def _queue_stage_selection_restore(target, modifier=None):
@@ -13046,6 +13142,14 @@ def _queue_stage_selection_restore(target, modifier=None):
 
 def _subscribe_selection_sync():
     """Listen for both active-object and multi-selection changes."""
+    if not _SELECTION_DRAW_HANDLERS and not bpy.app.background:
+        for space_type in (bpy.types.SpaceView3D, bpy.types.SpaceOutliner):
+            try:
+                handle = space_type.draw_handler_add(
+                    _selection_redraw_notify, (), "WINDOW", "POST_PIXEL")
+                _SELECTION_DRAW_HANDLERS.append((space_type, handle))
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                pass
     try:
         bpy.msgbus.clear_by_owner(_SELECTION_SYNC_MSG_OWNER)
         layer_objects = getattr(bpy.types, "LayerObjects", None)
@@ -13058,7 +13162,7 @@ def _subscribe_selection_sync():
                 key=(layer_objects, property_name),
                 owner=_SELECTION_SYNC_MSG_OWNER,
                 args=(),
-                notify=_selection_sync_notify,
+                notify=_selection_rna_notify,
             )
     except (AttributeError, RuntimeError, TypeError, ValueError):
         pass
@@ -13068,10 +13172,20 @@ def _unsubscribe_selection_sync():
     """Remove selection callbacks and any deferred one-shot timer."""
     global _SELECTION_SYNC_SIGNATURE, _SELECTION_SYNC_DIRTY
     global _PENDING_STAGE_SELECTION_RESTORE
+    while _SELECTION_DRAW_HANDLERS:
+        space_type, handle = _SELECTION_DRAW_HANDLERS.pop()
+        try:
+            space_type.draw_handler_remove(handle, "WINDOW")
+        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+            pass
+    _SELECTION_WINDOW_SIGNATURES.clear()
+    _SELECTION_PENDING_WINDOWS.clear()
     try:
         bpy.msgbus.clear_by_owner(_SELECTION_SYNC_MSG_OWNER)
         if bpy.app.timers.is_registered(_selection_sync_timer):
             bpy.app.timers.unregister(_selection_sync_timer)
+        if bpy.app.timers.is_registered(_selection_watch_timer):
+            bpy.app.timers.unregister(_selection_watch_timer)
     except (AttributeError, RuntimeError, ValueError, TypeError):
         pass
     _SELECTION_SYNC_SIGNATURE = None
@@ -13082,24 +13196,17 @@ def _unsubscribe_selection_sync():
 
 
 def _ensure_selection_sync_runtime():
-    """Restore load-cleared selection subscriptions and the persistent watch."""
+    """Restore load-cleared subscriptions and request one initial selection sync."""
     global _SELECTION_SYNC_SIGNATURE, _SELECTION_SYNC_DIRTY
     if not _RUNTIME_HANDLERS_REGISTERED:
         return False
     _SELECTION_SYNC_SIGNATURE = None
     _SELECTION_SYNC_DIRTY = True
+    _SELECTION_WINDOW_SIGNATURES.clear()
+    _SELECTION_PENDING_WINDOWS.clear()
     _WORKSPACE_TOOL_CONFIRMATIONS.clear()
     _WORKSPACE_TOOL_OVERRIDES.clear()
     _subscribe_selection_sync()
-    try:
-        if not bpy.app.timers.is_registered(_selection_watch_timer):
-            bpy.app.timers.register(
-                _selection_watch_timer,
-                first_interval=_SELECTION_WATCH_INTERVAL,
-                persistent=True,
-            )
-    except (AttributeError, RuntimeError, TypeError, ValueError):
-        return False
     _selection_sync_notify()
     return True
 
@@ -13140,6 +13247,8 @@ def schedule_runtime_bootstrap():
 @persistent
 def _runtime_load_discovery(_unused):
     """Always discover managed cages after opening another Blender file."""
+    from . import ffd_native_edit
+    ffd_native_edit.clear_native_edit_runtime()
     schedule_runtime_bootstrap()
 
 
@@ -13247,6 +13356,13 @@ def _depsgraph_sync(_scene, depsgraph):
         return
     if render_job_running():
         return
+    # Native selection and Outliner operators update the dependency graph
+    # without publishing LayerObjects.selected. Read only the final signature
+    # here; helper visibility, cleanup and tool changes belong in the timer.
+    if _RUNTIME_HANDLERS_REGISTERED:
+        selection_changed = _selection_state_changed(bpy.context)
+        if selection_changed or len(bpy.data.objects) != _ORPHAN_HELPER_OBJECT_COUNT:
+            _selection_sync_notify(dirty=selection_changed)
     queued = False
     try:
         updates = tuple(depsgraph.updates)
@@ -13426,6 +13542,8 @@ def _render_sync(_scene, *_args):
 @persistent
 def _load_sync(_unused):
     global _LEGACY_MIGRATION_PENDING
+    from . import ffd_native_edit
+    ffd_native_edit.reconcile_native_edit_sessions()
     clear_chain_reconnect_state()
     _cleanup_orphans_after_object_count_change(force=True)
     _reconcile_ffd_edit_session_flags()
@@ -13447,6 +13565,8 @@ def _load_sync(_unused):
 @persistent
 def _undo_redo_sync(_unused):
     """Repair helper ownership once after Blender restores an undo state."""
+    from . import ffd_native_edit
+    ffd_native_edit.reconcile_native_edit_sessions()
     clear_ffd_scope_cache()
     _cleanup_orphans_after_object_count_change(force=True)
     _reconcile_ffd_edit_session_flags()
@@ -14316,9 +14436,9 @@ def cleanup_orphan_deform_helpers():
                 continue
 
             if bool(obj.get(FFD_NATIVE_EDIT_PROXY_MARKER, False)):
-                # Keep the proxy only while its owning stage explicitly has
-                # a live native-edit session. Stale proxies loaded from a
-                # saved file have the flag reset and remain cleanup targets.
+                # Native undo needs the owned proxy after editing ends.
+                # Saved proxies lose both the flag and Python ownership on
+                # load, so they remain cleanup targets.
                 modifier_uuid = str(obj.get(
                     FFD_LATTICE_MODIFIER_MARKER, ""))
                 modifier = (
@@ -14330,6 +14450,9 @@ def cleanup_orphan_deform_helpers():
                 properties = getattr(controller, "sdh_cage_deform", None)
                 if bool(getattr(
                         properties, "ffd_native_edit_mode_active", False)):
+                    continue
+                from . import ffd_native_edit
+                if ffd_native_edit.owns_native_edit_proxy(obj):
                     continue
                 orphans.append(obj)
                 continue

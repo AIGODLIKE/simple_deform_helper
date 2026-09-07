@@ -11,6 +11,28 @@ _class_registered = False
 _registered_object_properties = []
 
 
+def _managed_origin_target(origin):
+    if not GizmoUtils.is_managed_origin(origin):
+        return None
+
+    def owns_origin(candidate):
+        return (
+            candidate is not None and
+            GizmoUtils.is_managed_origin(origin, candidate) and
+            any(modifier.type == "SIMPLE_DEFORM" and modifier.origin == origin
+                for modifier in candidate.modifiers)
+        )
+
+    parent = origin.parent
+    if owns_origin(parent):
+        return parent
+    # Lattice Origins are unparented to avoid a dependency cycle. Duplicated
+    # UUIDs must not let a detached helper choose an unrelated target.
+    targets = tuple(candidate for candidate in bpy.data.objects
+                    if owns_origin(candidate))
+    return targets[0] if len(targets) == 1 else None
+
+
 class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
     def _limits_up(self, context):
         if self.active_modifier_is_simple_deform:
@@ -56,16 +78,7 @@ class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
             return
         if self.origin_mode != "NOT":
             if self.is_managed_origin(obj):
-                target = obj.parent
-                if target is None:
-                    owner_uuid = str(obj.get(self.G_OWNER_UUID_PROP, ""))
-                    target = next(
-                        (
-                            candidate for candidate in bpy.data.objects
-                            if str(candidate.get(self.G_OBJECT_UUID_PROP, "")) == owner_uuid
-                        ),
-                        None,
-                    )
+                target = _managed_origin_target(obj)
                 modifier = next(
                     (
                         candidate for candidate in getattr(target, "modifiers", ())
@@ -92,14 +105,24 @@ class SimpleDeformGizmoObjectPropertyGroup(PropertyGroup, GizmoUtils):
             helper.clear_point_cache()
             helper.update_object_origin_matrix()
             return
-        parent = obj.parent
-        if not parent or not self.is_managed_origin(obj, parent):
+        target = _managed_origin_target(obj)
+        if target is None:
             return
 
-        for modifier in parent.modifiers:
-            if getattr(modifier, "origin", None) == obj:
-                modifier.origin = self.source_origin
-        parent.SimpleDeformGizmo_PropertyGroup.origin_mode = "NOT"
+        modifiers = tuple(
+            modifier for modifier in target.modifiers
+            if modifier.type == "SIMPLE_DEFORM" and modifier.origin == obj)
+        # Keep shared helpers attached: detaching the owner would let the
+        # orphan cleanup remove an object still referenced elsewhere.
+        shared_origin = any(
+            getattr(modifier, "origin", None) == obj
+            for candidate in bpy.data.objects if candidate != target
+            for modifier in candidate.modifiers)
+        if shared_origin or obj.users > len(obj.users_collection) + len(modifiers):
+            return
+        for modifier in modifiers:
+            modifier.origin = self.source_origin
+        target.SimpleDeformGizmo_PropertyGroup.origin_mode = "NOT"
         bpy.data.objects.remove(obj, do_unlink=True)
         remove_unused_control_collections()
 

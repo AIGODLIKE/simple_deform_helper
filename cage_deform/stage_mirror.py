@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 
-import bpy
 from bpy.app.translations import pgettext_iface as iface_
 from bpy.props import EnumProperty
 from bpy.types import Operator

@@ -3,6 +3,7 @@ from bpy.app.translations import pgettext_iface as iface_
 from bpy.types import Panel
 
 from ..ops import KeyFrame, RemoveFrame
+from ..operator_aliases import native_operator_idname
 from ..ops.stage import SimpleDeformStageCycle
 from ..stages import StageCache
 from ..utils import PublicPoll, GizmoUtils, get_pref
@@ -64,7 +65,7 @@ class SimpleDeformPropertyPanel(Panel, Info):
         stage_row = column.row(align=True)
         if stage_count > 1:
             previous = stage_row.operator(
-                SimpleDeformStageCycle.bl_idname,
+                native_operator_idname(SimpleDeformStageCycle.bl_idname),
                 text="", icon="TRIA_LEFT")
             previous.direction = "PREVIOUS"
         stage_row.label(
@@ -76,7 +77,7 @@ class SimpleDeformPropertyPanel(Panel, Info):
             icon="MOD_SIMPLEDEFORM")
         if stage_count > 1:
             following = stage_row.operator(
-                SimpleDeformStageCycle.bl_idname,
+                native_operator_idname(SimpleDeformStageCycle.bl_idname),
                 text="", icon="TRIA_RIGHT")
             following.direction = "NEXT"
 
@@ -87,7 +88,7 @@ class SimpleDeformPropertyPanel(Panel, Info):
                     item for item in obj.modifiers
                     if item.type == "SIMPLE_DEFORM"):
                 stage_button = stage_list.operator(
-                    SimpleDeformStageCycle.bl_idname,
+                    native_operator_idname(SimpleDeformStageCycle.bl_idname),
                     text=f"{index + 1}. {stage_modifier.name}",
                     icon=(
                         "RADIOBUT_ON" if stage_modifier == mod
@@ -160,8 +161,8 @@ class SimpleDeformAnimatedPanel(Panel, Info):
         layout = self.layout
         layout.scale_y = 1.2
         row = layout.row(align=True)
-        row.operator(KeyFrame.bl_idname)
-        row.operator(RemoveFrame.bl_idname)
+        row.operator(native_operator_idname(KeyFrame.bl_idname))
+        row.operator(native_operator_idname(RemoveFrame.bl_idname))
 
 
 def gizmo_panel(self, context):

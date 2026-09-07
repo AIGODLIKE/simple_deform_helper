@@ -32,6 +32,7 @@ from .curve import (
     curve_rest_guide_object,
 )
 from ..utils import GizmoUtils, get_pref
+from ..operator_aliases import native_operator_idname
 
 # Prefer literal bl_idnames so a stale/partial reload cannot NameError on
 # operator class imports during Panel.draw.
@@ -179,7 +180,7 @@ def _draw_deform_layer(
         # UILayout.panel here adds a redundant grey arrow beside it.
         header = layout.row(align=True)
         select = header.operator(
-            _OP_SELECT_DEFORM_LAYER,
+            native_operator_idname(_OP_SELECT_DEFORM_LAYER),
             text=DEFORM_TYPE_LABELS.get(deform_type, deform_type.title()),
             icon="TRIA_DOWN" if expanded else "TRIA_RIGHT",
             depress=selected,
@@ -187,7 +188,7 @@ def _draw_deform_layer(
         select.index = index
 
         visibility = header.operator(
-            _OP_TOGGLE_DEFORM_LAYER_MUTE,
+            native_operator_idname(_OP_TOGGLE_DEFORM_LAYER_MUTE),
             text="",
             icon="HIDE_ON" if muted else "HIDE_OFF",
             depress=muted,
@@ -197,21 +198,21 @@ def _draw_deform_layer(
         move_up_slot = header.row(align=True)
         move_up_slot.enabled = index > 0
         move_up = move_up_slot.operator(
-            _OP_MOVE_DEFORM_LAYER, text="", icon="TRIA_UP")
+            native_operator_idname(_OP_MOVE_DEFORM_LAYER), text="", icon="TRIA_UP")
         move_up.index = index
         move_up.direction = "UP"
 
         move_down_slot = header.row(align=True)
         move_down_slot.enabled = index < count - 1
         move_down = move_down_slot.operator(
-            _OP_MOVE_DEFORM_LAYER, text="", icon="TRIA_DOWN")
+            native_operator_idname(_OP_MOVE_DEFORM_LAYER), text="", icon="TRIA_DOWN")
         move_down.index = index
         move_down.direction = "DOWN"
 
         remove_slot = header.row(align=True)
         remove_slot.enabled = count > 1
         remove = remove_slot.operator(
-            _OP_REMOVE_DEFORM_LAYER, text="", icon="X")
+            native_operator_idname(_OP_REMOVE_DEFORM_LAYER), text="", icon="X")
         remove.index = index
 
     if body is None:
@@ -244,7 +245,7 @@ def _draw_deform_layer(
                 ("LINE", "Line", "EDGESEL"),
                 ("FACE", "Face", "FACESEL")):
             operator = selection_row.operator(
-                _OP_SET_FFD_SELECTION_MODE,
+                native_operator_idname(_OP_SET_FFD_SELECTION_MODE),
                 text=label,
                 icon=icon,
                 depress=mode in selection_modes,
@@ -263,7 +264,7 @@ def _draw_deform_layer(
         enabled_axes = set(ffd_symmetry_axes(properties))
         for axis in ("U", "V", "W"):
             symmetry_axis = symmetry_axes_row.operator(
-                _OP_SET_FFD_SYMMETRY_AXES,
+                native_operator_idname(_OP_SET_FFD_SYMMETRY_AXES),
                 text=axis,
                 depress=axis in enabled_axes,
             )
@@ -315,14 +316,14 @@ def _draw_deform_layer(
                 points[active_index], "edit_influence", text="Weight")
         select_row = parameters.row(align=True)
         edit = select_row.operator(
-            _OP_EDIT_FFD,
+            native_operator_idname(_OP_EDIT_FFD),
             text="Object Edit",
             icon="EDITMODE_HLT",
             depress=bool(getattr(properties, "ffd_edit_mode_active", False)),
         )
         edit.toggle = True
-        native = select_row.operator(
-            _OP_EDIT_FFD_NATIVE,
+        select_row.operator(
+            native_operator_idname(_OP_EDIT_FFD_NATIVE),
             text="Native Edit",
             icon="LATTICE_DATA",
             depress=bool(getattr(
@@ -335,7 +336,7 @@ def _draw_deform_layer(
             icon="MOD_LATTICE",
             toggle=True,
         )
-        select_row.operator(_OP_RESET_FFD, text="", icon="LOOP_BACK")
+        select_row.operator(native_operator_idname(_OP_RESET_FFD), text="", icon="LOOP_BACK")
     elif deform_type == "CURVE":
         guide = curve_guide_object(target, modifier)
 
@@ -351,14 +352,14 @@ def _draw_deform_layer(
                     rest_guide):
                 binding_row.label(text="Rest Binding", icon="CHECKMARK")
                 binding_row.operator(
-                    _OP_REBIND_CURVE,
+                    native_operator_idname(_OP_REBIND_CURVE),
                     text="Rebind Curve",
                     icon="FILE_REFRESH",
                 )
             else:
                 binding_row.label(text="Absolute Guide", icon="CURVE_DATA")
                 binding_row.operator(
-                    _OP_REBIND_CURVE,
+                    native_operator_idname(_OP_REBIND_CURVE),
                     text="Bind Current Guide",
                     icon="LINKED",
                 )
@@ -404,24 +405,24 @@ def _draw_deform_layer(
             editing = parameters.column(align=True)
             edit_row = editing.row(align=True)
             edit_row.operator(
-                _OP_EDIT_CURVE_OBJECT,
+                native_operator_idname(_OP_EDIT_CURVE_OBJECT),
                 text="Object Edit",
                 icon="RESTRICT_SELECT_OFF",
                 depress=bool(getattr(
                     properties, "curve_object_edit_active", False)),
             )
             edit_row.operator(
-                _OP_EDIT_CURVE,
+                native_operator_idname(_OP_EDIT_CURVE),
                 text="Native Edit",
                 icon="EDITMODE_HLT",
                 depress=bool(getattr(
                     properties, "curve_edit_mode_active", False)),
             )
-            edit_row.operator(_OP_RESET_CURVE, text="", icon="LOOP_BACK")
+            edit_row.operator(native_operator_idname(_OP_RESET_CURVE), text="", icon="LOOP_BACK")
             equalize_row = editing.row(align=True)
             equalize_row.prop(properties, "curve_equalize_count")
             equalize_row.operator(
-                _OP_EQUALIZE_CURVE,
+                native_operator_idname(_OP_EQUALIZE_CURVE),
                 text="Equalize",
                 icon="ARROW_LEFTRIGHT",
             )
@@ -468,11 +469,11 @@ def _draw_deform_layer(
             )
             station_actions = station_row.column(align=True)
             station_actions.operator(
-                _OP_ADD_CURVE_STATION, text="", icon="ADD")
+                native_operator_idname(_OP_ADD_CURVE_STATION), text="", icon="ADD")
             station_actions.operator(
-                _OP_REMOVE_CURVE_STATION, text="", icon="REMOVE")
+                native_operator_idname(_OP_REMOVE_CURVE_STATION), text="", icon="REMOVE")
             station_actions.operator(
-                _OP_RESAMPLE_STATIONS, text="", icon="ALIGN_JUSTIFY")
+                native_operator_idname(_OP_RESAMPLE_STATIONS), text="", icon="ALIGN_JUSTIFY")
             stations = properties.curve_stations
             if stations:
                 index = min(max(
@@ -549,13 +550,13 @@ def _draw_topology_warning(layout, target, modifier, controller):
     subdivide_row = warning.row(align=True)
     subdivide_row.alert = False
     simple = subdivide_row.operator(
-        _OP_ADD_TOPOLOGY,
+        native_operator_idname(_OP_ADD_TOPOLOGY),
         text=iface_("Simple Subdivision"),
         icon="MOD_SUBSURF",
     )
     simple.subdivision_type = "SIMPLE"
     smooth = subdivide_row.operator(
-        _OP_ADD_TOPOLOGY,
+        native_operator_idname(_OP_ADD_TOPOLOGY),
         text="Catmull-Clark",
     )
     smooth.subdivision_type = "CATMULL_CLARK"
@@ -573,7 +574,7 @@ def _draw_deform_merge(layout, context, selected):
         create = box.row(align=True)
         create.enabled = eligible_count >= 2
         create.operator(
-            _OP_CREATE_MERGE,
+            native_operator_idname(_OP_CREATE_MERGE),
             text="Merge Selected for Deform",
             icon="NODETREE",
         )
@@ -589,7 +590,7 @@ def _draw_deform_merge(layout, context, selected):
             icon="OUTLINER_COLLECTION",
         )
         collection.operator(
-            _OP_CREATE_COLLECTION_MERGE,
+            native_operator_idname(_OP_CREATE_COLLECTION_MERGE),
             text="Merge Collection",
             icon="NODETREE",
         )
@@ -607,7 +608,7 @@ def _draw_deform_merge(layout, context, selected):
         source_header.label(text=editing_source.name)
     source_header.label(text=str(len(sources)))
     source_header.operator(
-        _OP_RELEASE_MERGE,
+        native_operator_idname(_OP_RELEASE_MERGE),
         text="",
         icon="UNLINKED",
     )
@@ -615,12 +616,12 @@ def _draw_deform_merge(layout, context, selected):
     if editing_source is not None:
         edit_actions = box.row(align=True)
         edit_actions.operator(
-            _OP_ADD_CAGE_TO_FINAL_SOURCE,
+            native_operator_idname(_OP_ADD_CAGE_TO_FINAL_SOURCE),
             text="Add Cage to Final Source",
             icon="MOD_SIMPLEDEFORM",
         )
         edit_actions.operator(
-            _OP_RETURN_TO_MERGE,
+            native_operator_idname(_OP_RETURN_TO_MERGE),
             text="Return",
             icon="LOOP_BACK",
         )
@@ -674,13 +675,13 @@ def _draw_layer_keyframe_row(layout, properties):
         return
     layer_keys = layout.row(align=True)
     insert_layer = layer_keys.operator(
-        _OP_INSERT_KEYS,
+        native_operator_idname(_OP_INSERT_KEYS),
         text="Key Active Layer",
         icon="KEYFRAME_HLT",
     )
     insert_layer.layer_only = True
     delete_layer = layer_keys.operator(
-        _OP_DELETE_KEYS,
+        native_operator_idname(_OP_DELETE_KEYS),
         text="Delete Layer Keys",
         icon="KEY_DEHLT",
     )
@@ -722,12 +723,12 @@ def _draw_deformation_stack(layout, target, active_modifier, active_controller):
             toggle=True,
         )
     stack_header.operator(
-        _OP_APPLY_STACK,
+        native_operator_idname(_OP_APPLY_STACK),
         text="",
         icon="CHECKMARK",
     )
     clear = stack_header.operator(
-        _OP_REMOVE_STACK,
+        native_operator_idname(_OP_REMOVE_STACK),
         text="",
         icon="TRASH",
     )
@@ -735,16 +736,16 @@ def _draw_deformation_stack(layout, target, active_modifier, active_controller):
 
     presets = stack.row(align=True)
     presets.operator(
-        _OP_SAVE_STACK_PRESET, text="Save Preset", icon="FILE_TICK")
+        native_operator_idname(_OP_SAVE_STACK_PRESET), text="Save Preset", icon="FILE_TICK")
     presets.operator(
-        _OP_LOAD_STACK_PRESET, text="Load Preset", icon="FILE_FOLDER")
+        native_operator_idname(_OP_LOAD_STACK_PRESET), text="Load Preset", icon="FILE_FOLDER")
     presets.operator(
-        _OP_DELETE_STACK_PRESET, text="", icon="TRASH")
+        native_operator_idname(_OP_DELETE_STACK_PRESET), text="", icon="TRASH")
 
     for index, stage_modifier in enumerate(stages):
         row = stack.row(align=True)
         select = row.operator(
-            _OP_SELECT_STAGE,
+            native_operator_idname(_OP_SELECT_STAGE),
             text="",
             icon=(
                 "RADIOBUT_ON" if stage_modifier == active_modifier
@@ -763,7 +764,7 @@ def _draw_deformation_stack(layout, target, active_modifier, active_controller):
             _enabled_deform_types(stage_properties)
             if stage_properties is not None else ())
         quick_select = row.operator(
-            _OP_SELECT_STAGE,
+            native_operator_idname(_OP_SELECT_STAGE),
             text="",
             icon=(
                 STAGE_TYPE_ICONS.get(
@@ -811,7 +812,7 @@ def _draw_deformation_stack(layout, target, active_modifier, active_controller):
             index > 0 and
             (not connected_chain or chain_index == 0))
         earlier = earlier_slot.operator(
-            _OP_MOVE, text="", icon="TRIA_UP")
+            native_operator_idname(_OP_MOVE), text="", icon="TRIA_UP")
         earlier.index = index
         earlier.direction = "EARLIER"
         earlier.include_legacy = True
@@ -820,19 +821,19 @@ def _draw_deformation_stack(layout, target, active_modifier, active_controller):
             index < len(stages) - 1 and
             (not connected_chain or chain_index == chain_count - 1))
         later = later_slot.operator(
-            _OP_MOVE, text="", icon="TRIA_DOWN")
+            native_operator_idname(_OP_MOVE), text="", icon="TRIA_DOWN")
         later.index = index
         later.direction = "LATER"
         later.include_legacy = True
         apply_stage = row.operator(
-            _OP_APPLY_STAGE,
+            native_operator_idname(_OP_APPLY_STAGE),
             text="",
             icon="CHECKMARK",
         )
         apply_stage.index = index
         apply_stage.include_legacy = True
         remove = row.operator(
-            _OP_REMOVE,
+            native_operator_idname(_OP_REMOVE),
             text="",
             icon="X",
         )
@@ -898,17 +899,17 @@ def _draw_legacy_deform_stage(layout, target, modifier):
 
     animation = stage.row(align=True)
     animation.operator(
-        _OP_INSERT_KEYS, text="Insert Keys", icon="KEYFRAME")
+        native_operator_idname(_OP_INSERT_KEYS), text="Insert Keys", icon="KEYFRAME")
     animation.operator(
-        _OP_DELETE_KEYS, text="Delete Keys", icon="KEY_DEHLT")
+        native_operator_idname(_OP_DELETE_KEYS), text="Delete Keys", icon="KEY_DEHLT")
     finalize = stage.row(align=True)
     finalize.enabled = target.type == "MESH"
     finalize.operator(
-        _OP_APPLY_STAGE, text="Apply Stage", icon="CHECKMARK")
+        native_operator_idname(_OP_APPLY_STAGE), text="Apply Stage", icon="CHECKMARK")
     bake = stage.row(align=True)
     bake.enabled = target.type != "LATTICE"
     bake.operator(
-        _OP_BAKE_ANIMATION,
+        native_operator_idname(_OP_BAKE_ANIMATION),
         text="Bake Mesh Animation",
         icon="SHAPEKEY_DATA",
     )
@@ -924,7 +925,7 @@ class SDH_MT_add_standard_cage_type(Menu):
         layout.operator_context = "EXEC_DEFAULT"
         for deform_type in DEFORM_TYPE_ORDER:
             operator = layout.operator(
-                _OP_ADD,
+                native_operator_idname(_OP_ADD),
                 text=DEFORM_TYPE_LABELS[deform_type],
                 icon=STAGE_TYPE_ICONS[deform_type],
             )
@@ -941,7 +942,7 @@ class SDH_MT_add_standard_chain_type(Menu):
         layout.operator_context = "EXEC_DEFAULT"
         for deform_type in DEFORM_TYPE_ORDER:
             operator = layout.operator(
-                _OP_ADD_CHAIN,
+                native_operator_idname(_OP_ADD_CHAIN),
                 text=DEFORM_TYPE_LABELS[deform_type],
                 icon=STAGE_TYPE_ICONS[deform_type],
             )
@@ -975,7 +976,7 @@ class SDH_CAGE_PT_deform(Panel):
                 toggle=True,
             )
         settings = row.operator(
-            _OP_SHOW_PREFERENCES,
+            native_operator_idname(_OP_SHOW_PREFERENCES),
             text="",
             icon="PREFERENCES",
         )
@@ -997,7 +998,7 @@ class SDH_CAGE_PT_deform(Panel):
                 not bool(selected.get(FFD_NATIVE_EDIT_PROXY_MARKER, False))
         ):
             add = layout.operator(
-                _OP_ADD_LEGACY,
+                native_operator_idname(_OP_ADD_LEGACY),
                 text="Simple Deform (Legacy)",
                 icon="MOD_SIMPLEDEFORM",
             )
@@ -1036,7 +1037,7 @@ class SDH_CAGE_PT_deform(Panel):
             if add_cage_type == "STANDARD":
                 standard_button = add_slot.split(factor=0.86, align=True)
                 add = standard_button.operator(
-                    _OP_ADD, text=cage_label, icon=icon)
+                    native_operator_idname(_OP_ADD), text=cage_label, icon=icon)
                 add.initial_deform_type = "BEND"
                 deformation_menu = standard_button.operator(
                     "wm.call_menu",
@@ -1047,7 +1048,7 @@ class SDH_CAGE_PT_deform(Panel):
                     SDH_MT_add_standard_cage_type.bl_idname)
                 chain_button = chain_slot.split(factor=0.86, align=True)
                 chain_add = chain_button.operator(
-                    _OP_ADD_CHAIN, text=chain_label, icon="LINKED")
+                    native_operator_idname(_OP_ADD_CHAIN), text=chain_label, icon="LINKED")
                 chain_add.initial_deform_type = "BEND"
                 chain_deformation_menu = chain_button.operator(
                     "wm.call_menu",
@@ -1057,16 +1058,16 @@ class SDH_CAGE_PT_deform(Panel):
                 chain_deformation_menu.name = (
                     SDH_MT_add_standard_chain_type.bl_idname)
             else:
-                add = add_slot.operator(_OP_ADD, text=cage_label, icon=icon)
+                add = add_slot.operator(native_operator_idname(_OP_ADD), text=cage_label, icon=icon)
                 chain_add = chain_slot.operator(
-                    _OP_ADD_CHAIN, text=chain_label, icon="LINKED")
+                    native_operator_idname(_OP_ADD_CHAIN), text=chain_label, icon="LINKED")
             add.cage_type = add_cage_type
             chain_add.cage_type = add_cage_type
         tail_row = create_column.row(align=True)
         curve_slot = tail_row.row(align=True)
         curve_slot.enabled = can_add_cage
         curve_add = curve_slot.operator(
-            _OP_ADD, text="Curve", icon=STAGE_TYPE_ICONS["CURVE"])
+            native_operator_idname(_OP_ADD), text="Curve", icon=STAGE_TYPE_ICONS["CURVE"])
         curve_add.cage_type = "CURVE"
         if target is None:
             box = layout.box()
@@ -1074,7 +1075,7 @@ class SDH_CAGE_PT_deform(Panel):
             return
 
         tail_row.operator(
-            _OP_ADD_LEGACY,
+            native_operator_idname(_OP_ADD_LEGACY),
             text="Simple Deform (Legacy)",
             icon="MOD_SIMPLEDEFORM",
         )
@@ -1152,7 +1153,7 @@ class SDH_CAGE_PT_deform(Panel):
                 chain_box.prop(properties, "chain_gap", text="Gap Before")
             chain_action = chain_box.row(align=True)
             reconnect = chain_action.operator(
-                _OP_RECONNECT_CHAIN,
+                native_operator_idname(_OP_RECONNECT_CHAIN),
                 text="Reconnect Chain",
                 icon="CONSTRAINT",
             )
@@ -1193,7 +1194,7 @@ class SDH_CAGE_PT_deform(Panel):
                     batch.prop(properties, "chain_batch_stage_enabled")
         elif cage_type != "CURVE":
             layout.operator(
-                _OP_SUBDIVIDE_CHAIN,
+                native_operator_idname(_OP_SUBDIVIDE_CHAIN),
                 text="Subdivide to Chained Cages",
                 icon="MOD_ARRAY",
             )
@@ -1222,7 +1223,7 @@ class SDH_CAGE_PT_deform(Panel):
                 properties, "expanded_deform_layers", enabled_types))
             if any(item not in expanded_types for item in enabled_types):
                 shape_header.operator(
-                    _OP_EXPAND_DEFORM_LAYERS,
+                    native_operator_idname(_OP_EXPAND_DEFORM_LAYERS),
                     text="",
                     icon="FULLSCREEN_ENTER",
                 )
@@ -1250,7 +1251,7 @@ class SDH_CAGE_PT_deform(Panel):
                     properties, "ffd_native_edit_mode_active", False)))
             type_slot.prop(properties, "cage_type", text="")
             visibility = shape_header.operator(
-                _OP_TOGGLE_DEFORM_LAYER_MUTE,
+                native_operator_idname(_OP_TOGGLE_DEFORM_LAYER_MUTE),
                 text="",
                 icon="HIDE_ON" if deform_type in muted_types else "HIDE_OFF",
                 depress=deform_type in muted_types,
@@ -1276,7 +1277,7 @@ class SDH_CAGE_PT_deform(Panel):
             )
             for deform_type in missing_types:
                 add = add_grid.operator(
-                    _OP_ADD_DEFORM_LAYER,
+                    native_operator_idname(_OP_ADD_DEFORM_LAYER),
                     text=DEFORM_TYPE_LABELS[deform_type],
                     icon=STAGE_TYPE_ICONS[deform_type],
                 )
@@ -1322,7 +1323,7 @@ class SDH_CAGE_PT_deform(Panel):
                     ("ROTATE", "Rotate", "DRIVER_ROTATIONAL_DIFFERENCE"),
                     ("SCALE", "Scale", "FULLSCREEN_ENTER")):
                 operator = edit_row.operator(
-                    _OP_TRANSFORM, text=label, icon=icon)
+                    native_operator_idname(_OP_TRANSFORM), text=label, icon=icon)
                 operator.tool = tool
 
             influence = cage.column(align=True)
@@ -1341,7 +1342,7 @@ class SDH_CAGE_PT_deform(Panel):
             fit_chain = bool(
                 chain is not None and chain[3] in {"CHAINED", "CONNECTED"})
             fit_row.operator(
-                _OP_FIT,
+                native_operator_idname(_OP_FIT),
                 text="Align & Fit Chain" if fit_chain else "Align & Fit",
                 icon="FULLSCREEN_ENTER",
             )
@@ -1355,13 +1356,13 @@ class SDH_CAGE_PT_deform(Panel):
                 )
             if is_cage_controller(context.object):
                 fit_row.operator(
-                    _OP_SELECT_TARGET,
+                    native_operator_idname(_OP_SELECT_TARGET),
                     text="Return to Object",
                     icon="OBJECT_DATA",
                 )
             else:
                 fit_row.operator(
-                    _OP_SELECT_CONTROLLER,
+                    native_operator_idname(_OP_SELECT_CONTROLLER),
                     text="Select Cage",
                     icon="EMPTY_AXIS",
                 )
@@ -1377,40 +1378,40 @@ class SDH_CAGE_PT_deform(Panel):
         if not professional_mode:
             actions = layout.row(align=True)
             actions.operator(
-                _OP_DUPLICATE,
+                native_operator_idname(_OP_DUPLICATE),
                 text="Duplicate",
                 icon="DUPLICATE",
             )
             actions.operator(
-                _OP_MIRROR,
+                native_operator_idname(_OP_MIRROR),
                 text="Mirror",
                 icon="MOD_MIRROR",
             )
             stage_actions = layout.row(align=True)
             stage_actions.operator(
-                _OP_APPLY_STAGE,
+                native_operator_idname(_OP_APPLY_STAGE),
                 text="Apply Stage",
                 icon="CHECKMARK",
             )
             stage_actions.operator(
-                _OP_REMOVE,
+                native_operator_idname(_OP_REMOVE),
                 text="Remove Stage",
                 icon="TRASH",
             )
             animation = layout.row(align=True)
             animation.operator(
-                _OP_INSERT_KEYS,
+                native_operator_idname(_OP_INSERT_KEYS),
                 text="Insert Keys",
                 icon="KEYFRAME",
             )
             animation.operator(
-                _OP_DELETE_KEYS,
+                native_operator_idname(_OP_DELETE_KEYS),
                 text="Delete Keys",
                 icon="KEY_DEHLT",
             )
             _draw_layer_keyframe_row(layout, properties)
             layout.operator(
-                _OP_BAKE_ANIMATION,
+                native_operator_idname(_OP_BAKE_ANIMATION),
                 text="Bake Mesh Animation",
                 icon="SHAPEKEY_DATA",
             )
@@ -1429,7 +1430,7 @@ class SDH_CAGE_PT_deform(Panel):
         if properties.show_deform_axis:
             auto_axis = cage.row(align=True)
             operator = auto_axis.operator(
-                _OP_SET_AXIS,
+                native_operator_idname(_OP_SET_AXIS),
                 text="Auto",
                 depress=properties.alignment == "AUTO",
             )
@@ -1441,7 +1442,7 @@ class SDH_CAGE_PT_deform(Panel):
                     ("POS_X", "X+"), ("POS_Y", "Y+"), ("POS_Z", "Z+"),
                     ("NEG_X", "X-"), ("NEG_Y", "Y-"), ("NEG_Z", "Z-")):
                 operator = axis_grid.operator(
-                    _OP_SET_AXIS, text=label,
+                    native_operator_idname(_OP_SET_AXIS), text=label,
                     depress=properties.alignment == alignment)
                 operator.alignment = alignment
         ends_header = cage.row(align=True)
@@ -1470,7 +1471,7 @@ class SDH_CAGE_PT_deform(Panel):
                 offset_row.prop(properties, f"{side}_offset", index=0, text="X")
                 offset_row.prop(properties, f"{side}_offset", index=1, text="Z")
             ends.operator(
-                _OP_RESET_ENDS,
+                native_operator_idname(_OP_RESET_ENDS),
                 text="Reset Independent Ends",
                 icon="LOOP_BACK",
             )
@@ -1498,40 +1499,40 @@ class SDH_CAGE_PT_deform(Panel):
 
         actions = layout.row(align=True)
         actions.operator(
-            _OP_DUPLICATE,
+            native_operator_idname(_OP_DUPLICATE),
             text="Duplicate",
             icon="DUPLICATE",
         )
         actions.operator(
-            _OP_MIRROR,
+            native_operator_idname(_OP_MIRROR),
             text="Mirror",
             icon="MOD_MIRROR",
         )
         stage_actions = layout.row(align=True)
         stage_actions.operator(
-            _OP_APPLY_STAGE,
+            native_operator_idname(_OP_APPLY_STAGE),
             text="Apply Stage",
             icon="CHECKMARK",
         )
         stage_actions.operator(
-            _OP_REMOVE,
+            native_operator_idname(_OP_REMOVE),
             text="Remove Stage",
             icon="TRASH",
         )
         animation = layout.row(align=True)
         animation.operator(
-            _OP_INSERT_KEYS,
+            native_operator_idname(_OP_INSERT_KEYS),
             text="Insert Keys",
             icon="KEYFRAME",
         )
         animation.operator(
-            _OP_DELETE_KEYS,
+            native_operator_idname(_OP_DELETE_KEYS),
             text="Delete Keys",
             icon="KEY_DEHLT",
         )
         _draw_layer_keyframe_row(layout, properties)
         layout.operator(
-            _OP_BAKE_ANIMATION,
+            native_operator_idname(_OP_BAKE_ANIMATION),
             text="Bake Mesh Animation",
             icon="SHAPEKEY_DATA",
         )

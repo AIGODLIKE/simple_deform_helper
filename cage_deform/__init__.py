@@ -148,7 +148,7 @@ def _cleanup_registration(*, remove_runtime=True):
     merge.unregister_runtime()
     curve.finish_curve_edit_sessions(bpy.context, restore_target=False)
     ffd_native_edit.finish_native_edit_sessions(
-        bpy.context, restore_target=False)
+        bpy.context, restore_target=False, release_proxies=True)
     curve.remove_curve_draw_handlers()
     curve.clear_curve_relation_sync()
     core.unregister_ffd_workspace_tool()

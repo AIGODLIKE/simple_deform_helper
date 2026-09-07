@@ -1,99 +1,70 @@
-"""Verify that an idle empty viewport does not re-enter cage reconciliation.
-
-The selection watcher is intentionally persistent while a managed cage exists,
-because Blender can miss a few native selection notifications.  Once the
-empty-selection hand-off has completed, however, the normal 120 ms tick must
-remain cheap until msgbus marks a real selection change as dirty.
-"""
-from __future__ import annotations
-
+"""Verify selection synchronization is scheduled only by changed state."""
 import importlib
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import bpy
 
-
 SOURCE = Path(__file__).resolve().parents[1]
-ARGS = sys.argv[sys.argv.index("--") + 1:]
-RESULT = Path(ARGS[0]).resolve() if ARGS else (
-    SOURCE / "audit" / "selection_watch_idle_regression.txt")
-PACKAGE = SOURCE.name
+ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+RESULT = Path(ARGS[0]).resolve() if ARGS else None
 sys.path.insert(0, str(SOURCE.parent))
-
-
-def fail(message):
-    RESULT.parent.mkdir(parents=True, exist_ok=True)
-    RESULT.write_text(f"FAIL: {message}\n", encoding="utf-8")
-    raise RuntimeError(message)
-
-
-addon = importlib.import_module(PACKAGE)
+addon = importlib.import_module(SOURCE.name)
 entry = bpy.context.preferences.addons.new()
-entry.module = PACKAGE
+entry.module = SOURCE.name
 addon.register()
-core = importlib.import_module(f"{PACKAGE}.cage_deform.core")
+core = addon.cage_deform.core
 
-saved = {
-    "runtime": core._RUNTIME_HANDLERS_REGISTERED,
-    "dirty": core._SELECTION_SYNC_DIRTY,
-    "signature": core._SELECTION_SYNC_SIGNATURE,
-    "object_count": core._ORPHAN_HELPER_OBJECT_COUNT,
-}
+
+def check(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
+def drain():
+    for _ in range(12):
+        if core._selection_watch_timer() is None:
+            break
+    else:
+        raise AssertionError("selection confirmation did not finish")
+    if bpy.app.timers.is_registered(core._selection_watch_timer):
+        bpy.app.timers.unregister(core._selection_watch_timer)
+
+
 try:
-    for selected in tuple(getattr(bpy.context, "selected_objects", ()) or ()):
-        selected.select_set(False)
-    bpy.context.view_layer.objects.active = None
-    core._RUNTIME_HANDLERS_REGISTERED = True
-    core._SELECTION_SYNC_SIGNATURE = None
-    core._SELECTION_SYNC_DIRTY = True
-    core._ORPHAN_HELPER_OBJECT_COUNT = len(bpy.data.objects)
-
-    # Establish the completed native empty-selection hand-off.
-    core._selection_sync_timer()
-    signature = core._SELECTION_SYNC_SIGNATURE
-    if signature is None or signature[5]:
-        fail("empty selection did not establish a stable signature")
-
-    original_sync = core._selection_sync_timer
-    calls = []
-    core._selection_sync_timer = lambda: calls.append("sync")
-    core._SELECTION_SYNC_DIRTY = False
-    core._selection_watch_timer()
-    if calls:
-        fail("idle empty tick called selection sync")
-
-    # The persistent watcher remains a fallback when Blender omits the RNA
-    # notification.  A direct selection must therefore wake it even while the
-    # dirty bit is false.
     bpy.ops.mesh.primitive_cube_add()
-    selected = bpy.context.object
-    core._ORPHAN_HELPER_OBJECT_COUNT = len(bpy.data.objects)
-    core._SELECTION_SYNC_DIRTY = False
-    core._selection_watch_timer()
-    if calls != ["sync"]:
-        fail(f"selection without msgbus notification did not wake sync: {calls!r}")
-    selected.select_set(False)
-    bpy.context.view_layer.objects.active = None
-
-    # A msgbus notification must wake the full reconciliation path again.
-    calls.clear()
-    core._SELECTION_SYNC_DIRTY = True
-    core._selection_watch_timer()
-    if calls != ["sync"]:
-        fail(f"dirty selection did not wake sync: {calls!r}")
-    core._selection_sync_timer = original_sync
-
-    RESULT.parent.mkdir(parents=True, exist_ok=True)
-    RESULT.write_text("PASS::SELECTION_WATCH_IDLE\n", encoding="utf-8")
-    print("PASS::SELECTION_WATCH_IDLE")
+    target = bpy.context.object
+    _, controller, _ = core.create_deform_stage(bpy.context, target)
+    for selected in tuple(bpy.context.selected_objects):
+        selected.select_set(False)
+    bpy.context.view_layer.objects.active = target
+    drain()
+    for selected_state in (False, True):
+        target.select_set(selected_state)
+        # Native selection paths need not publish RNA notifications. The
+        # existing depsgraph handler must schedule, not perform, the mutation.
+        core._depsgraph_sync(bpy.context.scene, SimpleNamespace(updates=()))
+        check(bpy.app.timers.is_registered(core._selection_watch_timer) or
+              not selected_state, "selection change did not schedule its timer")
+        if selected_state:
+            check(not controller.select_get(), "depsgraph callback changed selection")
+        drain()
+        check(controller.select_get() == selected_state,
+              "controller selection did not follow target")
+        for _ in range(30):
+            core._depsgraph_sync(bpy.context.scene, SimpleNamespace(updates=()))
+        check(not bpy.app.timers.is_registered(core._selection_watch_timer),
+              "unchanged dependency graph scheduled selection work")
+    for _ in range(20):
+        core._selection_sync_notify()
+    check(bpy.app.timers.is_registered(core._selection_watch_timer),
+          "RNA notification did not schedule reconciliation")
+    drain()
+    message = "PASS::SELECTION_EVENT_IDLE"
+    print(message)
+    if RESULT is not None:
+        RESULT.write_text(message + "\n", encoding="utf-8")
 finally:
-    core._selection_sync_timer = original_sync if "original_sync" in locals() else core._selection_sync_timer
-    core._RUNTIME_HANDLERS_REGISTERED = saved["runtime"]
-    core._SELECTION_SYNC_DIRTY = saved["dirty"]
-    core._SELECTION_SYNC_SIGNATURE = saved["signature"]
-    core._ORPHAN_HELPER_OBJECT_COUNT = saved["object_count"]
-    try:
-        addon.unregister()
-    except Exception:
-        pass
+    addon.unregister()
+    bpy.context.preferences.addons.remove(entry)

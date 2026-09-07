@@ -14,6 +14,8 @@ from bpy.app.translations import pgettext_iface as iface_
 from bpy.props import EnumProperty
 from bpy.types import Operator
 
+from .operator_aliases import native_operator_idname
+
 
 VIEW_DISPLAY_KINDS = ("cage", "gizmo", "guides")
 _DEFAULTS = {kind: True for kind in VIEW_DISPLAY_KINDS}
@@ -221,7 +223,7 @@ class SDH_OT_reset_view_display(Operator):
 def _draw_toggle(layout, context, kind, label, icon):
     enabled = is_view_display_enabled(context, kind)
     operator = layout.operator(
-        SDH_OT_toggle_view_display.bl_idname,
+        native_operator_idname(SDH_OT_toggle_view_display.bl_idname),
         text=iface_(label),
         icon=icon,
         depress=enabled,
@@ -241,7 +243,7 @@ def draw_overlay_panel(panel, context):
     _draw_toggle(row, context, "gizmo", "Gizmos", "GIZMO")
     _draw_toggle(row, context, "guides", "Guides", "CURVE_DATA")
     box.operator(
-        SDH_OT_reset_view_display.bl_idname,
+        native_operator_idname(SDH_OT_reset_view_display.bl_idname),
         text=iface_("Reset SDH View"),
         icon="FILE_REFRESH",
     )
@@ -256,7 +258,7 @@ def draw_gizmo_panel(panel, context):
     box.label(text=iface_("Simple Deform Helper"), icon="MOD_SIMPLEDEFORM")
     _draw_toggle(box, context, "gizmo", "Gizmos", "GIZMO")
     box.operator(
-        SDH_OT_reset_view_display.bl_idname,
+        native_operator_idname(SDH_OT_reset_view_display.bl_idname),
         text=iface_("Reset SDH View"),
         icon="FILE_REFRESH",
     )

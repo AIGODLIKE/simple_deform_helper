@@ -50,6 +50,11 @@ try:
     region = next(item for item in area.regions if item.type == "WINDOW")
     space = area.spaces.active
     state = {"step": 0, "moved": None}
+    keymap = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+        name="3D View", space_type="VIEW_3D")
+    keymap.keymap_items.new("object.sdh_edit_ffd_native", "F8", "PRESS")
+    assert "UNDO" in bpy.types.OBJECT_OT_sdh_edit_ffd_native.bl_options
+    assert "UNDO" in cage.ffd_native_edit.SDH_OT_edit_ffd_native.bl_options
 
     def send_mouse(event_type, value, x, y):
         window.event_simulate(
@@ -105,6 +110,18 @@ try:
             )
         ))
 
+
+    def idle_proxies():
+        proxies = [obj for obj in bpy.data.objects
+                   if obj.get(cage.core.FFD_NATIVE_EDIT_PROXY_MARKER, False)]
+        assert len(proxies) <= 1, "Native edit created duplicate companions"
+        assert all(cage.ffd_native_edit.owns_native_edit_proxy(obj) and
+                   obj.hide_get() and obj.hide_select and obj.mode == "OBJECT"
+                   for obj in proxies), "Inactive native companion is not hidden/owned"
+        assert not cage.ffd_native_edit._SESSIONS
+        assert not bpy.app.timers.is_registered(cage.ffd_native_edit._watch_sessions)
+        return proxies
+
     def debug_snapshot(properties, proxy):
         point = proxy.data.points[0] if proxy is not None else None
         return {
@@ -128,9 +145,19 @@ try:
                 with bpy.context.temp_override(
                         window=window, area=area, region=region,
                         space_data=space):
-                    result = bpy.ops.sdh.edit_ffd_native()
-                if result != {"FINISHED"}:
-                    return finish(f"FAIL: Native Edit did not start: {result}")
+                    # Python fixture creation does not populate Blender's
+                    # event-driven undo history.
+                    bpy.ops.ed.undo_push(message="Native FFD test fixture")
+                state["mouse_start"] = (
+                    int(region.x + max(region.width // 2, 1)),
+                    int(region.y + max(region.height // 2, 1)),
+                )
+                window.cursor_warp(*state["mouse_start"])
+                send_mouse("MOUSEMOVE", "NOTHING", *state["mouse_start"])
+                send_key("F8", "PRESS")
+                send_key("F8", "RELEASE")
+                return 0.4
+            if state["step"] == 6:
                 (_target, _modifier, _controller, _properties, proxy,
                  _runtime) = resolve()
                 if proxy is None or proxy.mode != "EDIT":
@@ -160,6 +187,7 @@ try:
                     if item.type == "G" and item.value == "PRESS"
                 )
                 send_key("G", "PRESS")
+                send_key("G", "RELEASE")
                 return 0.2
             if state["step"] == 11:
                 area.tag_redraw()
@@ -188,7 +216,7 @@ try:
                         state["moved"] - Vector((0.2, 0.0, 0.0))
                 ).length <= 1.0e-5:
                     return finish(
-                        "SKIP::Blender keyboard event simulation did not "
+                        "FAIL: Blender keyboard event simulation did not "
                         "dispatch Lattice G; "
                         f"lattice_g={int(state.get('lattice_g', False))}")
                 with bpy.context.temp_override(
@@ -230,12 +258,17 @@ try:
                     return finish(
                         "FAIL: Native redo did not restore authored data: "
                         f"{tuple(redone)!r} != {tuple(state['moved'])!r}")
-                with bpy.context.temp_override(
-                        window=window, area=area, region=region,
-                        space_data=space):
-                    bpy.ops.object.mode_set(mode="OBJECT")
-                cage.ffd_native_edit._pull(current_controller, proxy)
-                cage.ffd_native_edit._watch_sessions()
+                state["redone"] = redone.copy()
+                send_key("TAB", "PRESS")
+                send_key("TAB", "RELEASE")
+                return 0.65
+            if state["step"] == 18:
+                (current_target, _modifier, current_controller,
+                 current_properties, proxy, runtime) = resolve()
+                redone = state["redone"]
+                if proxy is not None:
+                    return finish("FAIL: Native exit left its edit proxy")
+                idle_proxies()
                 if current_properties.ffd_native_edit_mode_active:
                     return finish("FAIL: Native session did not finalize")
                 if bpy.context.view_layer.objects.active != current_target:
@@ -257,8 +290,62 @@ try:
                 ))
                 if (effective - redone * 0.5).length > 1.0e-5:
                     return finish("FAIL: Native redo lost weighted evaluation")
-                return finish("PASS::FFD_NATIVE_UNDO_REDO::weight=0.5")
-            if state["step"] > 22:
+                with bpy.context.temp_override(
+                        window=window, area=area, region=region):
+                    bpy.ops.ed.undo()
+                return 0.65
+            if state["step"] in (19, 20, 23, 24):
+                (_target, _modifier, _controller, current_properties,
+                 proxy, _runtime) = resolve()
+                if (proxy is None or proxy.mode != "EDIT" or
+                        not current_properties.ffd_native_edit_mode_active):
+                    return finish(
+                        f"FAIL: Undo boundary lost its native session at {state['step']}")
+                expected = state["moved"] if state["step"] in (19, 24) else Vector((0.2, 0, 0))
+                if (proxy_raw(proxy) - expected).length > 1.0e-5:
+                    return finish(
+                        f"FAIL: Undo boundary restored wrong coordinates at {state['step']}")
+                with bpy.context.temp_override(
+                        window=window, area=area, region=region):
+                    if state["step"] in (19, 20):
+                        bpy.ops.ed.undo()
+                    else:
+                        bpy.ops.ed.redo()
+                return 0.65
+            if state["step"] in (21, 25, 28):
+                (_target, _modifier, _controller, current_properties,
+                 proxy, _runtime) = resolve()
+                if proxy is not None or current_properties.ffd_native_edit_mode_active:
+                    return finish(
+                        f"FAIL: Undo boundary left a native proxy at {state['step']}")
+                companions = idle_proxies()
+                if state["step"] == 28:
+                    addon.unregister()
+                    assert not cage.ffd_native_edit._OWNED_PROXIES
+                    assert not any(obj.get(cage.core.FFD_NATIVE_EDIT_PROXY_MARKER, False)
+                                   for obj in bpy.data.objects)
+                    return finish("PASS::FFD_NATIVE_UNDO_REDO::weight=0.5::exit_undo::reentry::disable")
+                if state["step"] == 21:
+                    with bpy.context.temp_override(
+                            window=window, area=area, region=region):
+                        bpy.ops.ed.redo()
+                    state["step"] = 22
+                else:
+                    state["parked_pointer"] = companions[0].as_pointer()
+                    send_key("F8", "PRESS")
+                    send_key("F8", "RELEASE")
+                    state["step"] = 26
+                return 0.65
+            if state["step"] == 27:
+                (_target, _modifier, _controller, _properties, proxy,
+                 _runtime) = resolve()
+                if proxy is None or proxy.mode != "EDIT":
+                    return finish("FAIL: Repeated native entry did not start")
+                assert proxy.as_pointer() == state["parked_pointer"], "Native reentry replaced its companion"
+                send_key("F8", "PRESS")
+                send_key("F8", "RELEASE")
+                return 0.65
+            if state["step"] > 32:
                 return finish("FAIL: Native undo/redo event smoke timed out")
             return 0.15
         except Exception:

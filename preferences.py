@@ -236,6 +236,8 @@ class SimpleDeformGizmoAddonPreferences(AddonPreferences, GizmoUtils):
 
     def draw(self, context):
         col = self.layout.column()
+        col.operator("wm.url_open", text="Report a Bug", icon="URL").url = (
+            "https://github.com/AIGODLIKE/simple_deform_helper/issues")
         col.prop(self, "show_gizmo")
         col.prop(self, "professional_mode")
         col.prop(self, "append_cage_stage_to_end")

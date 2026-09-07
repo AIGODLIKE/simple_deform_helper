@@ -443,7 +443,7 @@ class SDH_OT_save_cage_stack_preset(Operator):
     bl_label = "Save Stack Preset"
     bl_description = (
         "Save every managed cage stage on this object as a reusable preset")
-    bl_options = {"REGISTER"}
+    bl_options = set()
 
     preset_name: StringProperty(
         name="Preset Name",
@@ -544,7 +544,7 @@ class SDH_OT_delete_cage_stack_preset(Operator):
     bl_idname = "sdh.delete_cage_stack_preset"
     bl_label = "Delete Stack Preset"
     bl_description = "Delete one saved cage stack preset"
-    bl_options = {"REGISTER"}
+    bl_options = set()
     bl_property = "preset"
 
     preset: EnumProperty(
@@ -572,7 +572,7 @@ class SDH_OT_delete_cage_stack_preset(Operator):
             return {"CANCELLED"}
         self.report(
             {"INFO"},
-            iface_("Deleted preset {name}").format(name=self.preset),
+            iface_("Deleted preset {name}").format(name=path.stem),
         )
         return {"FINISHED"}
 

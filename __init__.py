@@ -9,6 +9,7 @@ from . import (
     preferences,
     view_state,
     cage_deform,
+    operator_aliases,
 )
 
 import logging
@@ -25,6 +26,7 @@ module_tuple = (
     view_state,
     cage_deform,
     ops,
+    operator_aliases,
     update,
     msgbus,
     gizmo,

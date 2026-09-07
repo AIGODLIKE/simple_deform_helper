@@ -10,6 +10,7 @@ from . import core
 
 
 _SESSIONS = {}
+_OWNED_PROXIES = {}
 _TIMER_REGISTERED = False
 _GUARD = set()
 _PROXY_CONTROLLER_MARKER = "_sdh_ffd_native_edit_controller"
@@ -126,6 +127,66 @@ def native_edit_session_live(controller):
         proxy is not None and getattr(proxy, "mode", "OBJECT") == "EDIT")
 
 
+def owns_native_edit_proxy(proxy):
+    """Keep only a runtime-owned companion with a still-valid stage owner."""
+    try:
+        key = str(proxy.get(core.FFD_LATTICE_MODIFIER_MARKER, ""))
+        target, modifier, controller, owned = _resolve_session(_OWNED_PROXIES.get(key))
+        return bool(
+            target is not None and modifier is not None and controller is not None and
+            owned == proxy and proxy.parent == target and
+            proxy.get(core.FFD_NATIVE_EDIT_PROXY_MARKER, False))
+    except (AttributeError, ReferenceError, RuntimeError, TypeError):
+        return False
+
+
+def clear_native_edit_runtime():
+    """Forget references to a previous file without adopting its saved proxies."""
+    _stop_timer()
+    _SESSIONS.clear()
+    _OWNED_PROXIES.clear()
+
+
+def reconcile_native_edit_sessions(context=None):
+    """Reconnect Python sessions to edit proxies restored by native undo."""
+    context = context or bpy.context
+    for proxy in core._data_objects_snapshot():
+        try:
+            if (not proxy.get(core.FFD_NATIVE_EDIT_PROXY_MARKER, False) or
+                    proxy.mode != "EDIT"):
+                continue
+            target = proxy.parent
+            modifier = core.find_modifier(
+                target, modifier_uuid=str(proxy.get(
+                    core.FFD_LATTICE_MODIFIER_MARKER, "")))
+            controller = core.find_controller(target, modifier)
+            properties = getattr(controller, "sdh_cage_deform", None)
+            if not bool(getattr(properties, "ffd_native_edit_mode_active", False)):
+                continue
+            key = core.cage_modifier_uuid(modifier)
+            _SESSIONS[key] = _session_record(target, modifier, controller, proxy)
+            _OWNED_PROXIES[key] = _SESSIONS[key]
+            proxy.hide_select = False
+            proxy.hide_set(False, view_layer=context.view_layer)
+            proxy.select_set(True, view_layer=context.view_layer)
+            context.view_layer.objects.active = proxy
+        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+            continue
+    if _SESSIONS:
+        _ensure_timer()
+
+
+def _park_proxy(proxy):
+    if proxy is None:
+        return
+    try:
+        proxy.select_set(False)
+        proxy.hide_set(True)
+        proxy.hide_select = True
+    except (AttributeError, ReferenceError, RuntimeError, TypeError):
+        pass
+
+
 def _remove_proxy(proxy):
     if proxy is None:
         return False
@@ -150,10 +211,11 @@ def _remove_proxy(proxy):
     return True
 
 
-def _create_edit_proxy(context, target, modifier, controller, runtime):
+def _create_edit_proxy(context, target, modifier, controller, runtime, proxy=None):
     """Create an authored lattice that never participates in deformation."""
     runtime_data = runtime.data
-    data = bpy.data.lattices.new(f"{modifier.name} FFD Edit Data")
+    data = proxy.data if proxy is not None else bpy.data.lattices.new(
+        f"{modifier.name} FFD Edit Data")
     data.points_u = int(runtime_data.points_u)
     data.points_v = int(runtime_data.points_v)
     data.points_w = int(runtime_data.points_w)
@@ -165,13 +227,14 @@ def _create_edit_proxy(context, target, modifier, controller, runtime):
             str(getattr(runtime_data, f"interpolation_type_{axis}")),
         )
 
-    proxy = bpy.data.objects.new(f"{modifier.name} FFD Edit", data)
-    collections = tuple(getattr(runtime, "users_collection", ()))
-    collection = collections[0] if collections else getattr(context, "collection", None)
-    if collection is not None:
-        collection.objects.link(proxy)
-    else:
-        bpy.context.collection.objects.link(proxy)
+    if proxy is None:
+        proxy = bpy.data.objects.new(f"{modifier.name} FFD Edit", data)
+        collections = tuple(getattr(runtime, "users_collection", ()))
+        collection = collections[0] if collections else getattr(context, "collection", None)
+        if collection is not None:
+            collection.objects.link(proxy)
+        else:
+            bpy.context.collection.objects.link(proxy)
     proxy.parent = target
     proxy.matrix_parent_inverse = Matrix.Identity(4)
     proxy.matrix_world = runtime.matrix_world.copy()
@@ -300,7 +363,9 @@ def _finish_session(
         properties.ffd_native_edit_mode_active = False
     except (AttributeError, ReferenceError, RuntimeError, TypeError):
         pass
-    _remove_proxy(proxy)
+    # Native undo still refers to this object after leaving Edit Mode. Keep
+    # its identity and collection links until stage removal or addon teardown.
+    _park_proxy(proxy)
     _restore_hidden(runtime)
     _SESSIONS.pop(session_key, None)
     if restore_target and target is not None:
@@ -315,7 +380,7 @@ def _finish_session(
     return True
 
 
-def finish_native_edit_sessions(context=None, *, restore_target=True):
+def finish_native_edit_sessions(context=None, *, restore_target=True, release_proxies=False):
     """Finalize every active native Lattice session before stack changes."""
     finished = 0
     for session_key in tuple(_SESSIONS):
@@ -325,6 +390,12 @@ def finish_native_edit_sessions(context=None, *, restore_target=True):
             finished += 1
     if not _SESSIONS:
         _stop_timer()
+    if release_proxies:
+        for record in tuple(_OWNED_PROXIES.values()):
+            _target, _modifier, _controller, proxy = _resolve_session(record)
+            if owns_native_edit_proxy(proxy):
+                _remove_proxy(proxy)
+        _OWNED_PROXIES.clear()
     return finished
 
 
@@ -338,11 +409,13 @@ def _watch_sessions():
             properties = getattr(controller, "sdh_cage_deform", None)
             if (
                     target is None or modifier is None or
-                    properties is None or proxy is None or
-                    not bool(getattr(
-                        properties, "ffd_native_edit_mode_active", False))
+                    properties is None or proxy is None
             ):
                 _remove_proxy(proxy)
+                _SESSIONS.pop(session_key, None)
+                continue
+            if not properties.ffd_native_edit_mode_active:
+                _park_proxy(proxy)
                 _SESSIONS.pop(session_key, None)
                 continue
             if getattr(proxy, "mode", "OBJECT") == "EDIT":
@@ -409,8 +482,12 @@ def _enter(context, controller):
     # that pass can distinguish the live editor from a stale saved proxy.
     properties.ffd_native_edit_mode_active = True
     try:
+        _owner, _stage, _controller, proxy = _resolve_session(
+            _OWNED_PROXIES.get(session_key))
+        if not owns_native_edit_proxy(proxy):
+            proxy = None
         proxy = _create_edit_proxy(
-            context, target, modifier, controller, runtime)
+            context, target, modifier, controller, runtime, proxy)
     except (AttributeError, ReferenceError, RuntimeError, TypeError,
             ValueError) as error:
         properties.ffd_native_edit_mode_active = False
@@ -436,6 +513,7 @@ def _enter(context, controller):
         return False, str(error)
     _SESSIONS[session_key] = _session_record(
         target, modifier, controller, proxy)
+    _OWNED_PROXIES[session_key] = _SESSIONS[session_key]
     _ensure_timer()
     return True, ""
 
@@ -444,10 +522,9 @@ class SDH_OT_edit_ffd_native(Operator):
     bl_idname = "sdh.edit_ffd_native"
     bl_label = "Native Lattice Edit"
     bl_description = "Edit this FFD through Blender's native Lattice Edit Mode"
-    # This operator only enters/leaves a temporary edit proxy. The actual
-    # lattice transforms own the undo records; the mode toggle must not sit
-    # between those edits and the user's previous history state.
-    bl_options = {"REGISTER"}
+    # The proxy must exist in undo history before its first native transform.
+    # Otherwise undoing that transform restores the pre-session scene.
+    bl_options = {"REGISTER", "UNDO"}
 
     toggle: BoolProperty(default=True, options={"HIDDEN", "SKIP_SAVE"})
 
