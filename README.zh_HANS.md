@@ -76,6 +76,12 @@ https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 ##### 重要特性：一键设置正确弯曲方向
 
+
+
+https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
+
+
+
 弯曲方向不对？启动显示轴向切换，根据弯曲方向Gizmo，选择方向。（弯曲的轴向优先级最高，即使有其他的形变也会以弯曲为最优先显示）
 
 <img width="2560" height="1380" alt="image" src="https://github.com/user-attachments/assets/eac08361-5d2f-424c-b59f-ff88a1302b4d" />
@@ -85,6 +91,12 @@ https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 
 ##### 重要特性：弯曲起始点
+
+
+
+https://github.com/user-attachments/assets/b4da8649-575e-47db-b8b7-3229fbfbd47b
+
+
 
 默认的弯曲开始位置取决于笼原点，默认底部，你可以设置顶部、中心和对称(从中心开始但弯曲方向相反)
 
@@ -251,6 +263,12 @@ Blender原生晶格只支持点，在这里追加了边和面。意味着你不�
 #### 通用属性
 
 你的物体需要多段变形时，链式笼就是你的首选。这是它的特性。
+
+
+
+https://github.com/user-attachments/assets/69ae0718-3aa4-4140-8af0-0eec0cd63a01
+
+
 
 |特性|说明|
 |---|---|
