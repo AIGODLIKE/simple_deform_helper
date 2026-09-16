@@ -22,6 +22,8 @@ https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
 
 https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
+<img width="1336" height="720" alt="빠른 시작" src="https://github.com/user-attachments/assets/ed0f7c90-ad73-4fd7-8679-0b10b4b4612a" />
+
 1. **설치:** [릴리스 페이지](https://github.com/AIGODLIKE/simple_deform_helper/releases)에서 다운로드합니다. 앞으로 Blender Extensions에서 직접 설치할 수 있게 할 예정이지만, 이미 많은 사용자가 이 도구를 쓰고 있으므로 충분한 실제 사례를 수집하고 안정성을 확인한 뒤 정식으로 게시하겠습니다.
 2. **위치:** `N` 패널을 열고 **심플 디포머 V2** 탭을 찾습니다.
 3. **추가:** 변형할 오브젝트를 선택하고(여러 오브젝트를 지원하지만 너무 많이 선택하지 마세요) **표준형 케이지 추가**를 클릭합니다.
@@ -69,6 +71,8 @@ https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
 
+<img width="1336" height="720" alt="올바른 구부리기 방향 설정" src="https://github.com/user-attachments/assets/26b1f225-684a-4f86-a79f-a1e396ba61f0" />
+
 구부리기 방향이 잘못되었나요? 축 방향 전환 표시를 켜고 구부리기 방향 기즈모에서 방향을 선택하세요. 구부리기 축의 표시 우선순위가 가장 높기 때문에 다른 변형이 있어도 구부리기 방향이 먼저 표시됩니다.
 
 <img width="2560" height="1380" alt="구부리기 방향 컨트롤" src="https://github.com/user-attachments/assets/eac08361-5d2f-424c-b59f-ff88a1302b4d" />
@@ -76,6 +80,8 @@ https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
 ##### 중요: 구부리기 시작 위치
 
 https://github.com/user-attachments/assets/b4da8649-575e-47db-b8b7-3229fbfbd47b
+
+<img width="1336" height="720" alt="케이지 원점" src="https://github.com/user-attachments/assets/c280f60c-6565-48bc-84f6-505eca286053" />
 
 기본 구부리기 시작 위치는 케이지 원점에 따라 정해지며 기본값은 아래쪽입니다. 위쪽, 중앙, 대칭을 선택할 수 있습니다. 대칭은 중앙에서 시작해 서로 반대 방향으로 구부립니다.
 
@@ -233,6 +239,8 @@ FFD를 기본 상태로 되돌립니다. 원래 상태로 복원하는 애니메
 오브젝트에 여러 구간의 변형이 필요할 때는 체인 케이지가 가장 좋은 선택입니다.
 
 https://github.com/user-attachments/assets/69ae0718-3aa4-4140-8af0-0eec0cd63a01
+
+<img width="1336" height="720" alt="체인 케이지 기초" src="https://github.com/user-attachments/assets/ef17be94-2d46-46dd-a75e-96fca91d06b0" />
 
 | 기능 | 설명 |
 |---|---|

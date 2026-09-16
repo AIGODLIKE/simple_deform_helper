@@ -22,6 +22,8 @@ https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
 
 https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
+<img width="1336" height="720" alt="Quick start" src="https://github.com/user-attachments/assets/ed0f7c90-ad73-4fd7-8679-0b10b4b4612a" />
+
 1. **Install:** Download it from the [Releases page](https://github.com/AIGODLIKE/simple_deform_helper/releases). It may be available directly from Blender Extensions in the future; because so many people are already using it, I want to collect enough real-world samples and confirm its stability before publishing the official listing.
 2. **Open:** Press `N` and find the **Simple Deformer V2** tab.
 3. **Add:** Select the object you want to deform (multiple objects are supported, but do not select too many), then click **Add Standard Cage**.
@@ -69,6 +71,8 @@ Bends the object into an arc.
 
 https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
 
+<img width="1336" height="720" alt="Set the correct bend direction" src="https://github.com/user-attachments/assets/26b1f225-684a-4f86-a79f-a1e396ba61f0" />
+
 Is the bend going the wrong way? Enable the axis direction switch and choose a direction with the Bend Direction gizmo. Bend has the highest axis-display priority, so its direction is shown first even when other deformations are present.
 
 <img width="2560" height="1380" alt="Bend direction controls" src="https://github.com/user-attachments/assets/eac08361-5d2f-424c-b59f-ff88a1302b4d" />
@@ -76,6 +80,8 @@ Is the bend going the wrong way? Enable the axis direction switch and choose a d
 ##### Important: Bend Origin
 
 https://github.com/user-attachments/assets/b4da8649-575e-47db-b8b7-3229fbfbd47b
+
+<img width="1336" height="720" alt="Cage origin" src="https://github.com/user-attachments/assets/c280f60c-6565-48bc-84f6-505eca286053" />
 
 The bend start position depends on the cage origin. It defaults to the bottom, but you can choose Top, Center, or Symmetric. Symmetric starts from the center and bends in opposite directions.
 
@@ -233,6 +239,8 @@ In addition to the guide curve's point segments, the cage can have its own secti
 When an object needs several deformation segments, a chained cage is the first choice.
 
 https://github.com/user-attachments/assets/69ae0718-3aa4-4140-8af0-0eec0cd63a01
+
+<img width="1336" height="720" alt="Chained cage basics" src="https://github.com/user-attachments/assets/ef17be94-2d46-46dd-a75e-96fca91d06b0" />
 
 | Feature | Description |
 |---|---|
