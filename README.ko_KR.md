@@ -67,11 +67,15 @@ https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 ##### 중요: 올바른 구부리기 방향을 한 번에 설정
 
+https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
+
 구부리기 방향이 잘못되었나요? 축 방향 전환 표시를 켜고 구부리기 방향 기즈모에서 방향을 선택하세요. 구부리기 축의 표시 우선순위가 가장 높기 때문에 다른 변형이 있어도 구부리기 방향이 먼저 표시됩니다.
 
 <img width="2560" height="1380" alt="구부리기 방향 컨트롤" src="https://github.com/user-attachments/assets/eac08361-5d2f-424c-b59f-ff88a1302b4d" />
 
 ##### 중요: 구부리기 시작 위치
+
+https://github.com/user-attachments/assets/b4da8649-575e-47db-b8b7-3229fbfbd47b
 
 기본 구부리기 시작 위치는 케이지 원점에 따라 정해지며 기본값은 아래쪽입니다. 위쪽, 중앙, 대칭을 선택할 수 있습니다. 대칭은 중앙에서 시작해 서로 반대 방향으로 구부립니다.
 
@@ -227,6 +231,8 @@ FFD를 기본 상태로 되돌립니다. 원래 상태로 복원하는 애니메
 #### 공통 속성
 
 오브젝트에 여러 구간의 변형이 필요할 때는 체인 케이지가 가장 좋은 선택입니다.
+
+https://github.com/user-attachments/assets/69ae0718-3aa4-4140-8af0-0eec0cd63a01
 
 | 기능 | 설명 |
 |---|---|

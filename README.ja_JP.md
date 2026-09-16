@@ -67,11 +67,15 @@ https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 ##### 重要：正しい曲げ方向をワンクリックで設定
 
+https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
+
 曲げ方向が違う場合は、軸方向の切り替え表示を有効にし、曲げ方向ギズモで方向を選択します。曲げ軸の表示優先度が最も高いため、ほかの変形があっても曲げ方向が優先して表示されます。
 
 <img width="2560" height="1380" alt="曲げ方向のコントロール" src="https://github.com/user-attachments/assets/eac08361-5d2f-424c-b59f-ff88a1302b4d" />
 
 ##### 重要：曲げの開始位置
+
+https://github.com/user-attachments/assets/b4da8649-575e-47db-b8b7-3229fbfbd47b
 
 曲げの開始位置はケージの原点で決まります。初期値は下部ですが、上部、中心、対称を選べます。対称では中心から開始し、互いに反対方向へ曲がります。
 
@@ -227,6 +231,8 @@ FFD を初期状態に戻します。リセットして元へ戻すアニメー�
 #### 共通プロパティ
 
 オブジェクトを複数区間に分けて変形するときは、チェーンケージが最適です。
+
+https://github.com/user-attachments/assets/69ae0718-3aa4-4140-8af0-0eec0cd63a01
 
 | 機能 | 説明 |
 |---|---|

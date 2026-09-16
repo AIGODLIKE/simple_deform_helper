@@ -67,11 +67,15 @@ Bends the object into an arc.
 
 ##### Important: Set the Correct Bend Direction in One Click
 
+https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
+
 Is the bend going the wrong way? Enable the axis direction switch and choose a direction with the Bend Direction gizmo. Bend has the highest axis-display priority, so its direction is shown first even when other deformations are present.
 
 <img width="2560" height="1380" alt="Bend direction controls" src="https://github.com/user-attachments/assets/eac08361-5d2f-424c-b59f-ff88a1302b4d" />
 
 ##### Important: Bend Origin
+
+https://github.com/user-attachments/assets/b4da8649-575e-47db-b8b7-3229fbfbd47b
 
 The bend start position depends on the cage origin. It defaults to the bottom, but you can choose Top, Center, or Symmetric. Symmetric starts from the center and bends in opposite directions.
 
@@ -227,6 +231,8 @@ In addition to the guide curve's point segments, the cage can have its own secti
 #### General Properties
 
 When an object needs several deformation segments, a chained cage is the first choice.
+
+https://github.com/user-attachments/assets/69ae0718-3aa4-4140-8af0-0eec0cd63a01
 
 | Feature | Description |
 |---|---|
