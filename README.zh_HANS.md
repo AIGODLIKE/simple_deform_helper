@@ -29,7 +29,8 @@ https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
 
 https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
-<img width="1336" height="720" alt="002 Quick _Use" src="https://github.com/user-attachments/assets/97715352-7335-4a10-a897-77bf0234a910" />
+<img width="1336" height="720" alt="002 Quick _Use" src="https://github.com/user-attachments/assets/ed0f7c90-ad73-4fd7-8679-0b10b4b4612a" />
+
 
 
 1. 安装：从[发行版页面](https://github.com/AIGODLIKE/simple_deform_helper/releases)下载（或未来从Blender extension直接安装，目前这个工具有太多人在用了，我需要收集足够的样本确保它的稳定性才会推送正式版）
@@ -81,6 +82,7 @@ https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
 https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
 
+<img width="1336" height="720" alt="003 Say goodbye to XYZ" src="https://github.com/user-attachments/assets/26b1f225-684a-4f86-a79f-a1e396ba61f0" />
 
 
 弯曲方向不对？启动显示轴向切换，根据弯曲方向Gizmo，选择方向。（弯曲的轴向优先级最高，即使有其他的形变也会以弯曲为最优先显示）
@@ -97,6 +99,8 @@ https://github.com/user-attachments/assets/e9b31aee-c37e-4e08-81b9-a901ff8f6046
 
 https://github.com/user-attachments/assets/b4da8649-575e-47db-b8b7-3229fbfbd47b
 
+
+<img width="1336" height="720" alt="004 Cage Origin" src="https://github.com/user-attachments/assets/c280f60c-6565-48bc-84f6-505eca286053" />
 
 
 默认的弯曲开始位置取决于笼原点，默认底部，你可以设置顶部、中心和对称(从中心开始但弯曲方向相反)
@@ -268,6 +272,8 @@ Blender原生晶格只支持点，在这里追加了边和面。意味着你不�
 
 
 https://github.com/user-attachments/assets/69ae0718-3aa4-4140-8af0-0eec0cd63a01
+
+<img width="1336" height="720" alt="005 Chain cage base" src="https://github.com/user-attachments/assets/ef17be94-2d46-46dd-a75e-96fca91d06b0" />
 
 
 
