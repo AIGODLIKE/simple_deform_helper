@@ -29,6 +29,7 @@ https://github.com/user-attachments/assets/b80654c0-f9b1-4511-98ef-21a511fa443e
 
 https://github.com/user-attachments/assets/bcd54cef-a601-4da8-8ef4-9f0f0592ae76
 
+<img width="1336" height="720" alt="002 Quick _Use" src="https://github.com/user-attachments/assets/97715352-7335-4a10-a897-77bf0234a910" />
 
 
 1. 安装：从[发行版页面](https://github.com/AIGODLIKE/simple_deform_helper/releases)下载（或未来从Blender extension直接安装，目前这个工具有太多人在用了，我需要收集足够的样本确保它的稳定性才会推送正式版）
