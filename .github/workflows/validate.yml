@@ -230,7 +230,8 @@ jobs:
             --version '${{ matrix.version }}' --output "$RUNNER_TEMP/sdh-review-gui" \
             --gui-scripts native_shortcut_regression.py stack_preset_redo_regression.py \
             multi_window_display_smoke.py gui_modal_control_undo_regression.py \
-            selection_event_runtime_regression.py ffd_native_undo_real_event_smoke.py
+            selection_event_runtime_regression.py ffd_native_undo_real_event_smoke.py \
+            workspace_tool_cycle_regression.py
 
       - uses: actions/upload-artifact@v4
         if: always()

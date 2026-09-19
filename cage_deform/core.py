@@ -332,7 +332,9 @@ def register_ffd_workspace_tool():
             SDH_WST_ffd_edit,
             after={"builtin.select_box"},
             separator=True,
-            group=False,
+            # Select Box is inside Blender's native selection group. Create a
+            # separate group so its separator cannot enter the W-key cycle.
+            group=True,
         )
         _FFD_WORKSPACE_TOOL_REGISTERED = True
     if not _CURVE_WORKSPACE_TOOL_REGISTERED:

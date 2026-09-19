@@ -7,7 +7,7 @@ maintainer = "ACGGIT"
 name = "Simple Deform Helper"
 tagline = "Easy to deform, easy to animate: keyable cage handles"
 type = "add-on"
-version = "2.7.57"
+version = "2.7.58"
 website = "https://github.com/AIGODLIKE/simple_deform_helper"
 tags = ["3D View", "Modeling"]
 

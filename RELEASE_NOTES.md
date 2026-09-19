@@ -1,3 +1,14 @@
+# Simple Deform Helper 2.7.58
+
+## Selection Tool Cycling
+
+- Fixed W-key selection cycling raising `NoneType.widget` and
+  `NoneType.idname` errors after enabling the extension or adding a cage.
+- Kept FFD and Curve editors in a separate toolbar group, preserving Blender's
+  native selection tools and their shortcut cycle.
+- Added regression coverage for repeated W events, all four cage types, and
+  extension disable/re-enable.
+
 # Simple Deform Helper 2.7.57
 
 ## Review Follow-up
